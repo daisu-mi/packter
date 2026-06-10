@@ -1,3 +1,14 @@
 broker/target/
 *.exe
 __pycache__/
+*.o
+*.a
+agent/pt_agent
+agent/pt_replay
+agent/pt_sflow
+agent/pt_netflow
+agent/pt_thmon
+agent/tests/test_unit
+agent/tests/test.pcap
+agent/tests/got*.txt
+agent/tests/expected*.txt
