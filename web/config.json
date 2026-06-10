@@ -4,7 +4,7 @@
   "rewindMs": 300000,
   "toastMs": 10000,
   "maxSe": 10,
-  "skydome": "assets/skydome.png",
+  "skydome": "assets/compiled/skydometexture_0.png",
   "flagColors": null,
   "axis": {
     "xStart": 0.0,
@@ -13,9 +13,9 @@
     "yEnd": 1.0
   },
   "boards": {
-    "sender":   { "texture": "assets/packter_sender.png",   "scale": 1.0 },
-    "receiver": { "texture": "assets/packter_receiver.png", "scale": 1.0 },
-    "gateway":  { "texture": "assets/packter_gateway.png",  "scale": 1.0, "enabled": true }
+    "sender":   { "texture": "assets/compiled/packter_sender.png",   "scale": 1.0 },
+    "receiver": { "texture": "assets/compiled/packter_receiver.png", "scale": 1.0 },
+    "gateway":  { "texture": "assets/compiled/packter_gateway.png",  "scale": 1.0, "enabled": true }
   },
   "ball": "assets/ball.json",
   "terrain": null

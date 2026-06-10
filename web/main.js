@@ -244,7 +244,20 @@ window.addEventListener('keydown', e => {
     if (document.fullscreenElement) document.exitFullscreen();
     else document.body.requestFullscreen();
   }
+  keysDown.add(e.code);
+  if (keysDown.has('KeyV') && (keysDown.has('Digit4') || keysDown.has('Numpad4'))) {
+    v4logo.style.display = v4logo.style.display === 'none' ? 'block' : 'none';
+  }
 });
+window.addEventListener('keyup', e => keysDown.delete(e.code));
+
+// legacy easter egg: V+4 shows the V4 logo (compiled asset from 2.4)
+const keysDown = new Set();
+const v4logo = document.createElement('img');
+v4logo.src = 'assets/compiled/v4.png';
+v4logo.style.cssText =
+  'position:fixed;bottom:64px;left:14px;width:128px;display:none;pointer-events:none;';
+document.body.appendChild(v4logo);
 
 // ---- audio (PACKTERSE / PACKTERSOUND) ------------------------------------
 let audioCtx = null;
