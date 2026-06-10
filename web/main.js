@@ -4,51 +4,73 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ---- configuration (web/config.json, all keys optional) -----------------
+// N面配置: boards is an array; each board is a plane with its own local
+// coordinate frame. Index 0 = classic sender, 1 = classic receiver.
+// The broker assigns srcBoard per datagram source (--board rules).
+const DEFAULT_BOARDS = [
+  { name: 'sender', texture: 'assets/compiled/packter_sender.png', position: [0, 0, -110], rotationY: 0, size: 230 },
+  { name: 'receiver', texture: 'assets/compiled/packter_receiver.png', position: [0, 0, 110], rotationY: Math.PI, size: 230 },
+];
+
 const DEFAULTS = {
   size: 1.0,
   flyMs: 3000,
   rewindMs: 5 * 60 * 1000,
   toastMs: 10000,
   maxSe: 10,
-  skydome: 'assets/skydome.png',
+  skydome: 'assets/compiled/skydometexture_0.png',
   flagColors: null,
   axis: { xStart: 0.0, xEnd: 1.0, yStart: 0.0, yEnd: 1.0 },
-  boards: {
-    sender: { texture: 'assets/packter_sender.png', scale: 1.0 },
-    receiver: { texture: 'assets/packter_receiver.png', scale: 1.0 },
-    gateway: { texture: 'assets/packter_gateway.png', scale: 1.0, enabled: true },
-  },
+  boards: DEFAULT_BOARDS,
+  gateway: { texture: 'assets/compiled/packter_gateway.png', enabled: true, position: [0, 110, 0], size: 40 },
   ball: 'assets/ball.json',
   terrain: null,
 };
 
+// legacy object-form boards config ({sender, receiver, gateway}) -> array
+function migrateBoards(user) {
+  if (!user.boards || Array.isArray(user.boards)) {
+    return user;
+  }
+  const old = user.boards;
+  const arr = structuredClone(DEFAULT_BOARDS);
+  if (old.sender?.texture) arr[0].texture = old.sender.texture;
+  if (old.sender?.scale) arr[0].size = 230 * old.sender.scale;
+  if (old.receiver?.texture) arr[1].texture = old.receiver.texture;
+  if (old.receiver?.scale) arr[1].size = 230 * old.receiver.scale;
+  user = { ...user, boards: arr };
+  if (old.gateway) {
+    user.gateway = { ...DEFAULTS.gateway, enabled: old.gateway.enabled !== false,
+                     texture: old.gateway.texture || DEFAULTS.gateway.texture };
+  }
+  return user;
+}
+
 let cfg = DEFAULTS;
 try {
-  const r = await fetch('config.json');
+  // ?config=<file> selects an alternative layout (e.g. config-3boards.json)
+  const cfgUrl = new URLSearchParams(location.search).get('config') || 'config.json';
+  const r = await fetch(cfgUrl);
   if (r.ok) {
-    const user = await r.json();
+    const user = migrateBoards(await r.json());
     cfg = {
       ...DEFAULTS, ...user,
       axis: { ...DEFAULTS.axis, ...(user.axis || {}) },
-      boards: {
-        sender: { ...DEFAULTS.boards.sender, ...(user.boards?.sender || {}) },
-        receiver: { ...DEFAULTS.boards.receiver, ...(user.boards?.receiver || {}) },
-        gateway: { ...DEFAULTS.boards.gateway, ...(user.boards?.gateway || {}) },
-      },
+      gateway: { ...DEFAULTS.gateway, ...(user.gateway || {}) },
+      boards: (Array.isArray(user.boards) && user.boards.length >= 2) ? user.boards : DEFAULT_BOARDS,
     };
   }
 } catch { /* defaults */ }
 
 const FLY_MS = cfg.flyMs;
 const FIELD = 200;                   // legacy: (v - 0.5) * 100 * 2
-const BOARD_Z = 110;
 const ARC_HEIGHT = 60;
 const REWIND_MS = cfg.rewindMs;
 const MAX_EVENTS = 2_000_000;
 const MAX_VISIBLE = 20000;
 
 const KIND_LAY = 0, KIND_BALLISTIC = 1, KIND_GATEWAY = 2;
-const GATEWAY_POS = new THREE.Vector3(0, FIELD * 0.55, 0);
+const GATEWAY_POS = new THREE.Vector3(...cfg.gateway.position);
 
 // flag colors from legacy packter0-9.png swatches (config-overridable)
 const FLAG_HEX = cfg.flagColors || [
@@ -117,11 +139,11 @@ function setSkydome(url) {
 }
 setSkydome(cfg.skydome);
 
-function addBoard(conf, pos, rotY, size) {
-  texLoader.load(conf.texture, tex => {
+function addBoardMesh(texture, pos, rotY, size) {
+  texLoader.load(texture, tex => {
     tex.colorSpace = THREE.SRGBColorSpace;
     const board = new THREE.Mesh(
-      new THREE.PlaneGeometry(size * conf.scale, size * conf.scale),
+      new THREE.PlaneGeometry(size, size),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
     );
     board.position.copy(pos);
@@ -129,10 +151,29 @@ function addBoard(conf, pos, rotY, size) {
     scene.add(board);
   });
 }
-addBoard(cfg.boards.sender, new THREE.Vector3(0, 0, -BOARD_Z), 0, FIELD * 1.15);
-addBoard(cfg.boards.receiver, new THREE.Vector3(0, 0, BOARD_Z), Math.PI, FIELD * 1.15);
-if (cfg.boards.gateway.enabled) {
-  addBoard(cfg.boards.gateway, GATEWAY_POS.clone().add(new THREE.Vector3(0, 20, 0)), Math.PI / 2, 40);
+
+// board local frames: a normalized record coordinate (0..1, 0..1) maps to
+//   origin + right*(x-0.5)*FIELD + up*(y-0.5)*FIELD
+const boardFrames = cfg.boards.map(b => {
+  const rotY = b.rotationY ?? 0;
+  const origin = new THREE.Vector3(...(b.position ?? [0, 0, 0]));
+  const right = new THREE.Vector3(Math.cos(rotY), 0, -Math.sin(rotY));
+  const up = new THREE.Vector3(0, 1, 0);
+  addBoardMesh(b.texture, origin, rotY, b.size ?? FIELD * 1.15);
+  return { origin, right, up, name: b.name ?? '' };
+});
+
+function boardPoint(idx, nx, ny, out) {
+  const f = boardFrames[idx] ?? boardFrames[0];
+  out.copy(f.origin)
+    .addScaledVector(f.right, (nx - 0.5) * FIELD)
+    .addScaledVector(f.up, (ny - 0.5) * FIELD);
+  return out;
+}
+
+if (cfg.gateway.enabled) {
+  addBoardMesh(cfg.gateway.texture,
+    GATEWAY_POS.clone().add(new THREE.Vector3(0, 20, 0)), Math.PI / 2, cfg.gateway.size);
 }
 
 // optional terrain (ballistic map successor): glTF via config
@@ -173,13 +214,13 @@ fetch(cfg.ball).then(r => r.ok ? r.json() : null).then(d => {
 }).catch(() => {});
 
 // ---- event ring buffer (rewind spec: keep last 5 minutes) ---------------
-const ev = { t: [], sx: [], sy: [], dx: [], dy: [], flag: [], kind: [], desc: [] };
+const ev = { t: [], sx: [], sy: [], dx: [], dy: [], flag: [], kind: [], sb: [], db: [], desc: [] };
 let liveStart = 0;
 let ppsWindow = [];
 
-function pushEvent(t, sx, sy, dx, dy, flag, kind, desc) {
+function pushEvent(t, sx, sy, dx, dy, flag, kind, sb, db, desc) {
   ev.t.push(t); ev.sx.push(sx); ev.sy.push(sy); ev.dx.push(dx); ev.dy.push(dy);
-  ev.flag.push(flag); ev.kind.push(kind); ev.desc.push(desc);
+  ev.flag.push(flag); ev.kind.push(kind); ev.sb.push(sb); ev.db.push(db); ev.desc.push(desc);
 }
 
 function clearEvents() {
@@ -361,7 +402,7 @@ function connect() {
       return;
     }
     const dv = new DataView(e.data);
-    if (dv.getUint8(0) !== 2 || dv.getUint8(1) !== 1) return;
+    if (dv.getUint8(0) !== 3 || dv.getUint8(1) !== 1) return;
     const count = dv.getUint32(4, true);
     const now = performance.now();
     let off = 8, live = 0;
@@ -373,11 +414,13 @@ function connect() {
       const dy = dv.getFloat32(off + 16, true);
       const flag = dv.getUint16(off + 20, true);
       const kind = dv.getUint8(off + 22);
-      const dlen = dv.getUint8(off + 23);
+      const sb = dv.getUint8(off + 23);
+      const db = dv.getUint8(off + 24);
+      const dlen = dv.getUint8(off + 25);
       const desc = dlen > 0
-        ? textDecoder.decode(new Uint8Array(e.data, off + 24, dlen)) : '';
-      off += 24 + dlen;
-      pushEvent(now - age, revX(sx), revY(sy), revX(dx), revY(dy), flag, kind, desc);
+        ? textDecoder.decode(new Uint8Array(e.data, off + 26, dlen)) : '';
+      off += 26 + dlen;
+      pushEvent(now - age, revX(sx), revY(sy), revX(dx), revY(dy), flag, kind, sb, db, desc);
       if (age < 1000) live++;
     }
     if (live > 0) ppsWindow.push([now, live]);
@@ -385,44 +428,28 @@ function connect() {
 }
 connect();
 
-// ---- packet position by trajectory kind -----------------------------------
-const fieldCoord = v => (v - 0.5) * FIELD;
+// ---- packet position: board-local endpoints + trajectory kind --------------
 const tmpVec = new THREE.Vector3();
+const srcPt = new THREE.Vector3();
+const dstPt = new THREE.Vector3();
 
 function packetPosition(i, f, out) {
-  const x0 = fieldCoord(ev.sx[i]), y0 = fieldCoord(ev.sy[i]);
-  const x1 = fieldCoord(ev.dx[i]), y1 = fieldCoord(ev.dy[i]);
+  boardPoint(ev.sb[i], ev.sx[i], ev.sy[i], srcPt);
+  boardPoint(ev.db[i], ev.dx[i], ev.dy[i], dstPt);
   switch (ev.kind[i]) {
     case KIND_BALLISTIC:
-      out.set(
-        x0 + (x1 - x0) * f,
-        y0 + (y1 - y0) * f + Math.sin(Math.PI * f) * ARC_HEIGHT,
-        -BOARD_Z + 2 * BOARD_Z * f,
-      );
+      out.lerpVectors(srcPt, dstPt, f);
+      out.y += Math.sin(Math.PI * f) * ARC_HEIGHT;
       break;
     case KIND_GATEWAY:
       if (f < 0.5) {
-        const g = f * 2;
-        out.set(
-          x0 + (GATEWAY_POS.x - x0) * g,
-          y0 + (GATEWAY_POS.y - y0) * g,
-          -BOARD_Z + (GATEWAY_POS.z + BOARD_Z) * g,
-        );
+        out.lerpVectors(srcPt, GATEWAY_POS, f * 2);
       } else {
-        const g = (f - 0.5) * 2;
-        out.set(
-          GATEWAY_POS.x + (x1 - GATEWAY_POS.x) * g,
-          GATEWAY_POS.y + (y1 - GATEWAY_POS.y) * g,
-          GATEWAY_POS.z + (BOARD_Z - GATEWAY_POS.z) * g,
-        );
+        out.lerpVectors(GATEWAY_POS, dstPt, (f - 0.5) * 2);
       }
       break;
     default:
-      out.set(
-        x0 + (x1 - x0) * f,
-        y0 + (y1 - y0) * f,
-        -BOARD_Z + 2 * BOARD_Z * f,
-      );
+      out.lerpVectors(srcPt, dstPt, f);
   }
 }
 
@@ -440,9 +467,11 @@ canvas.addEventListener('click', e => {
   if (hits.length > 0 && hits[0].instanceId !== undefined && visMap[hits[0].instanceId] !== undefined) {
     const sel = visMap[hits[0].instanceId];
     const kindName = ['lay', 'ballistic', 'gateway'][ev.kind[sel]] || 'lay';
+    const bName = idx => boardFrames[idx]?.name || `board${idx}`;
     selinfo.style.display = 'block';
     selinfo.textContent =
-      `flag:${ev.flag[sel]} (${kindName})\n${ev.desc[sel] || '(no description)'}`;
+      `flag:${ev.flag[sel]} (${kindName}) ${bName(ev.sb[sel])}→${bName(ev.db[sel])}\n` +
+      `${ev.desc[sel] || '(no description)'}`;
   } else {
     selinfo.style.display = 'none';
   }
@@ -450,8 +479,16 @@ canvas.addEventListener('click', e => {
 
 // debug/testing hook (read-only introspection for automated checks)
 window.__packter = {
-  packets, camera, raycaster,
+  packets, camera, raycaster, boardFrames,
   stats: () => ({ buffered: ev.t.length, visible: packets.count, mode }),
+  boardCounts: () => {
+    const c = {};
+    for (let i = 0; i < ev.sb.length; i++) {
+      const k = `${ev.sb[i]}->${ev.db[i]}`;
+      c[k] = (c[k] || 0) + 1;
+    }
+    return c;
+  },
 };
 
 // ---- render loop ---------------------------------------------------------

@@ -12,11 +12,11 @@
     "yStart": 0.0,
     "yEnd": 1.0
   },
-  "boards": {
-    "sender":   { "texture": "assets/compiled/packter_sender.png",   "scale": 1.0 },
-    "receiver": { "texture": "assets/compiled/packter_receiver.png", "scale": 1.0 },
-    "gateway":  { "texture": "assets/compiled/packter_gateway.png",  "scale": 1.0, "enabled": true }
-  },
+  "boards": [
+    { "name": "sender",   "texture": "assets/compiled/packter_sender.png",   "position": [0, 0, -110], "rotationY": 0,      "size": 230 },
+    { "name": "receiver", "texture": "assets/compiled/packter_receiver.png", "position": [0, 0, 110],  "rotationY": 3.14159, "size": 230 }
+  ],
+  "gateway": { "texture": "assets/compiled/packter_gateway.png", "enabled": true, "position": [0, 110, 0], "size": 40 },
   "ball": "assets/ball.json",
   "terrain": null
 }

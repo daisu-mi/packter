@@ -7,13 +7,13 @@ pub struct Stored {
     pub ev: FlyEvent,
 }
 
-/// Binary fly frame v2 (little endian):
-///   u8 ver=2, u8 type=1, u16 reserved, u32 count, then per event:
+/// Binary fly frame v3 (little endian):
+///   u8 ver=3, u8 type=1, u16 reserved, u32 count, then per event:
 ///   i32 ageMs, f32 sx, f32 sy, f32 dx, f32 dy, u16 flag, u8 kind,
-///   u8 descLen, descLen bytes UTF-8
+///   u8 srcBoard, u8 dstBoard, u8 descLen, descLen bytes UTF-8
 pub fn encode_fly_frame(events: &[&Stored], now_ms: u64) -> Vec<u8> {
     let mut buf = Vec::with_capacity(8 + events.len() * 32);
-    buf.extend_from_slice(&[2u8, 1u8, 0, 0]);
+    buf.extend_from_slice(&[3u8, 1u8, 0, 0]);
     buf.extend_from_slice(&(events.len() as u32).to_le_bytes());
     for st in events {
         let age = now_ms.saturating_sub(st.ts_ms) as i32;
@@ -26,6 +26,8 @@ pub fn encode_fly_frame(events: &[&Stored], now_ms: u64) -> Vec<u8> {
         buf.extend_from_slice(&st.ev.dy.to_le_bytes());
         buf.extend_from_slice(&(st.ev.flag as u16).to_le_bytes());
         buf.push(st.ev.kind);
+        buf.push(st.ev.src_board);
+        buf.push(st.ev.dst_board);
         buf.push(dlen as u8);
         buf.extend_from_slice(&desc[..dlen]);
     }
@@ -70,17 +72,20 @@ mod tests {
     fn frame_roundtrip_layout() {
         let st = Stored {
             ts_ms: 1000,
-            ev: FlyEvent { kind: KIND_GATEWAY, sx: 0.25, sy: 0.5, dx: 0.75, dy: 1.0, flag: 7, desc: "abc".into() },
+            ev: FlyEvent { kind: KIND_GATEWAY, sx: 0.25, sy: 0.5, dx: 0.75, dy: 1.0, flag: 7,
+                           src_board: 2, dst_board: 1, desc: "abc".into() },
         };
         let frame = encode_fly_frame(&[&st], 1500);
-        assert_eq!(frame[0], 2);
+        assert_eq!(frame[0], 3);
         assert_eq!(frame[1], 1);
         assert_eq!(u32::from_le_bytes(frame[4..8].try_into().unwrap()), 1);
         let age = i32::from_le_bytes(frame[8..12].try_into().unwrap());
         assert_eq!(age, 500);
         assert_eq!(frame[30], KIND_GATEWAY);
-        assert_eq!(frame[31], 3);
-        assert_eq!(&frame[32..35], b"abc");
+        assert_eq!(frame[31], 2);  // srcBoard
+        assert_eq!(frame[32], 1);  // dstBoard
+        assert_eq!(frame[33], 3);  // descLen
+        assert_eq!(&frame[34..37], b"abc");
     }
 
     #[test]

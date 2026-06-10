@@ -35,12 +35,14 @@ pub fn parse_eve_line(line: &str) -> Option<FlyEvent> {
         dx,
         dy,
         flag,
+        src_board: 0,
+        dst_board: 1,
         desc: format!("Incident:{sig} sid:{sid}"),
     })
 }
 
 /// Tail `path` (starting at EOF) and forward alert fly events.
-pub async fn tail_eve(path: String, tx: tokio::sync::mpsc::Sender<crate::parse::Parsed>) {
+pub async fn tail_eve(path: String, board: u8, tx: tokio::sync::mpsc::Sender<crate::parse::Parsed>) {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
     let mut file = match tokio::fs::File::open(&path).await {
@@ -74,7 +76,8 @@ pub async fn tail_eve(path: String, tx: tokio::sync::mpsc::Sender<crate::parse::
         carry.push_str(&chunk);
         while let Some(nl) = carry.find('\n') {
             let line: String = carry.drain(..=nl).collect();
-            if let Some(ev) = parse_eve_line(line.trim_end()) {
+            if let Some(mut ev) = parse_eve_line(line.trim_end()) {
+                ev.src_board = board;
                 let _ = tx.try_send(crate::parse::Parsed::Fly(ev));
             }
         }

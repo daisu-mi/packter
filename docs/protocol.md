@@ -51,16 +51,29 @@
 ### バイナリ（飛翔体、WSバイナリフレーム、LE）
 
 ```
-u8 ver=2, u8 type=1, u16 reserved, u32 count
+u8 ver=3, u8 type=1, u16 reserved, u32 count
 count × {
   i32 ageMs        // 発射からの経過（ライブ≒0、バックフィルで過去分を再現）
   f32 sx, sy, dx, dy   // 正規化座標
   u16 flag
-  u8  kind         // 0=lay, 1=ballistic, 2=gateway
+  u8  kind         // 0=lay, 1=ballistic, 2=gateway, 3=earth
+  u8  srcBoard     // N面配置: 出発ボード index（既定0）
+  u8  dstBoard     // 到着ボード index（既定1）
   u8  descLen
   descLen bytes    // UTF-8 DESCRIPTION
 }
 ```
+
+### N面配置（ボード振り分け）
+
+ブローカーがデータグラムの**送信元アドレス**でボードを割り当てる（Agent無改修）:
+```
+packter-broker --board 192.168.1.5=2 --board 10.0.0.0/8=3 [--eve-board 4]
+```
+ルール形式は「IP=index」（v4/v6完全一致）または「CIDR=index」（v4）。
+不一致は board 0。ビューア側は config の `boards[]` 配列（position /
+rotationY / size / texture / name）で配置を定義する。レイアウト例:
+`web/config-3boards.json`（`?config=config-3boards.json` で読込）。
 
 - ブローカーは33msごとにライブイベントをバッチして1フレームで送る
 - 接続直後、ブローカー側5分リングの内容を同形式でバックフィル（4096件/フレーム）

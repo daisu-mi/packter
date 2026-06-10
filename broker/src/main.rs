@@ -57,6 +57,54 @@ struct Config {
     record: Option<String>,
     thmon: Option<String>,
     eve: Option<String>,
+    eve_board: u8,
+    boards: Vec<BoardRule>,
+}
+
+/// N面配置: map a datagram source address to a viewer board index.
+/// Rule forms: "192.168.1.5=2" (exact, v4/v6) or "10.0.0.0/8=1" (v4 CIDR).
+#[derive(Clone, Debug)]
+struct BoardRule {
+    matcher: BoardMatch,
+    board: u8,
+}
+
+#[derive(Clone, Debug)]
+enum BoardMatch {
+    Exact(std::net::IpAddr),
+    Cidr4(u32, u8),
+}
+
+fn parse_board_rule(s: &str) -> Option<BoardRule> {
+    let (addr, board) = s.rsplit_once('=')?;
+    let board: u8 = board.trim().parse().ok()?;
+    let addr = addr.trim();
+    if let Some((net, plen)) = addr.split_once('/') {
+        let net: std::net::Ipv4Addr = net.parse().ok()?;
+        let plen: u8 = plen.parse().ok()?;
+        if plen > 32 {
+            return None;
+        }
+        return Some(BoardRule { matcher: BoardMatch::Cidr4(u32::from(net), plen), board });
+    }
+    let ip: std::net::IpAddr = addr.parse().ok()?;
+    Some(BoardRule { matcher: BoardMatch::Exact(ip), board })
+}
+
+fn board_for(peer: std::net::IpAddr, rules: &[BoardRule]) -> u8 {
+    for r in rules {
+        match (&r.matcher, peer) {
+            (BoardMatch::Exact(ip), p) if *ip == p => return r.board,
+            (BoardMatch::Cidr4(net, plen), std::net::IpAddr::V4(p)) => {
+                let mask = if *plen == 0 { 0 } else { u32::MAX << (32 - *plen) };
+                if (u32::from(p) & mask) == (*net & mask) {
+                    return r.board;
+                }
+            }
+            _ => {}
+        }
+    }
+    0
 }
 
 fn parse_args() -> Config {
@@ -68,6 +116,8 @@ fn parse_args() -> Config {
         record: None,
         thmon: None,
         eve: None,
+        eve_board: 0,
+        boards: Vec::new(),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -80,9 +130,17 @@ fn parse_args() -> Config {
             "--record" => cfg.record = Some(args.next().expect("--record FILE")),
             "--thmon" => cfg.thmon = Some(args.next().expect("--thmon CONF")),
             "--eve" => cfg.eve = Some(args.next().expect("--eve FILE")),
+            "--eve-board" => {
+                cfg.eve_board = args.next().and_then(|v| v.parse().ok()).expect("--eve-board N")
+            }
+            "--board" => {
+                let spec = args.next().expect("--board <ip|cidr>=<index>");
+                cfg.boards.push(parse_board_rule(&spec).expect("invalid --board rule"));
+            }
             "--help" | "-h" => {
                 println!("usage: packter-broker [WEB_DIR] [--udp 11300] [--http 11380]");
-                println!("       [--forward IP:PORT] [--record FILE] [--thmon packter.conf] [--eve eve.json]");
+                println!("       [--forward IP:PORT] [--record FILE] [--thmon packter.conf]");
+                println!("       [--eve eve.json] [--eve-board N] [--board <ip|cidr>=<index>]...");
                 std::process::exit(0);
             }
             other => cfg.web_dir = other.to_string(),
@@ -122,9 +180,9 @@ async fn main() {
         record,
     });
 
-    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward));
+    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone()));
     if let Some(path) = cfg.eve.clone() {
-        tokio::spawn(eve::tail_eve(path, item_tx.clone()));
+        tokio::spawn(eve::tail_eve(path, cfg.eve_board, item_tx.clone()));
     }
     tokio::spawn(batcher(item_rx, shared.clone(), thmon));
 
@@ -148,7 +206,10 @@ async fn main() {
         println!("  threshold monitor : {t}");
     }
     if let Some(e) = &cfg.eve {
-        println!("  suricata eve      : tailing {e}");
+        println!("  suricata eve      : tailing {e} (board {})", cfg.eve_board);
+    }
+    for r in &cfg.boards {
+        println!("  board rule        : {:?} -> board {}", r.matcher, r.board);
     }
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind http");
     axum::serve(listener, app).await.expect("serve http");
@@ -264,7 +325,8 @@ async fn batcher(mut rx: mpsc::Receiver<Parsed>, shared: Arc<Shared>, mut thmon:
     }
 }
 
-async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketAddr>) {
+async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketAddr>,
+                    boards: Vec<BoardRule>) {
     let sock = UdpSocket::bind(("0.0.0.0", port)).await.expect("bind udp");
     let fwd_sock = if forward.is_some() {
         Some(UdpSocket::bind(("0.0.0.0", 0)).await.expect("bind forward socket"))
@@ -273,13 +335,43 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
     };
     let mut buf = vec![0u8; 65536];
     loop {
-        let Ok((len, _peer)) = sock.recv_from(&mut buf).await else { continue };
+        let Ok((len, peer)) = sock.recv_from(&mut buf).await else { continue };
         if let (Some(fs), Some(dst)) = (&fwd_sock, forward) {
             let _ = fs.send_to(&buf[..len], dst).await;
         }
         let Ok(text) = std::str::from_utf8(&buf[..len]) else { continue };
+        let board = board_for(peer.ip(), &boards);
         for item in parse_datagram(text) {
-            let _ = tx.try_send(item);
+            match item {
+                Parsed::Fly(mut ev) => {
+                    ev.src_board = board;
+                    let _ = tx.try_send(Parsed::Fly(ev));
+                }
+                other => {
+                    let _ = tx.try_send(other);
+                }
+            }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn board_rules() {
+        let rules = vec![
+            parse_board_rule("192.168.1.5=2").unwrap(),
+            parse_board_rule("10.0.0.0/8=3").unwrap(),
+            parse_board_rule("2001:db8::1=4").unwrap(),
+        ];
+        let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
+        assert_eq!(board_for(ip("192.168.1.5"), &rules), 2);
+        assert_eq!(board_for(ip("10.99.1.2"), &rules), 3);
+        assert_eq!(board_for(ip("2001:db8::1"), &rules), 4);
+        assert_eq!(board_for(ip("172.16.0.1"), &rules), 0); // default
+        assert!(parse_board_rule("nonsense").is_none());
+        assert!(parse_board_rule("10.0.0.0/40=1").is_none());
     }
 }
