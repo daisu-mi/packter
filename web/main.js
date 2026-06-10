@@ -1,30 +1,89 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { VRButton } from 'three/addons/webxr/VRButton.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// ---- constants (legacy-compatible) ------------------------------------
-const FLY_MS = 3000;                 // legacy flight time
+// ---- configuration (web/config.json, all keys optional) -----------------
+const DEFAULTS = {
+  size: 1.0,
+  flyMs: 3000,
+  rewindMs: 5 * 60 * 1000,
+  toastMs: 10000,
+  maxSe: 10,
+  skydome: 'assets/skydome.png',
+  flagColors: null,
+  axis: { xStart: 0.0, xEnd: 1.0, yStart: 0.0, yEnd: 1.0 },
+  boards: {
+    sender: { texture: 'assets/packter_sender.png', scale: 1.0 },
+    receiver: { texture: 'assets/packter_receiver.png', scale: 1.0 },
+    gateway: { texture: 'assets/packter_gateway.png', scale: 1.0, enabled: true },
+  },
+  ball: 'assets/ball.json',
+  terrain: null,
+};
+
+let cfg = DEFAULTS;
+try {
+  const r = await fetch('config.json');
+  if (r.ok) {
+    const user = await r.json();
+    cfg = {
+      ...DEFAULTS, ...user,
+      axis: { ...DEFAULTS.axis, ...(user.axis || {}) },
+      boards: {
+        sender: { ...DEFAULTS.boards.sender, ...(user.boards?.sender || {}) },
+        receiver: { ...DEFAULTS.boards.receiver, ...(user.boards?.receiver || {}) },
+        gateway: { ...DEFAULTS.boards.gateway, ...(user.boards?.gateway || {}) },
+      },
+    };
+  }
+} catch { /* defaults */ }
+
+const FLY_MS = cfg.flyMs;
 const FIELD = 200;                   // legacy: (v - 0.5) * 100 * 2
 const BOARD_Z = 110;
-const ARC_HEIGHT = 60;               // ballistic arc
-const REWIND_MS = 5 * 60 * 1000;     // rolling buffer: 5 minutes (spec 2026-06-10)
-const MAX_EVENTS = 2_000_000;        // hard cap (legacy MaxPacketNum spirit)
-const MAX_VISIBLE = 20000;           // instanced draw capacity
-const TOAST_MS = 10000;              // legacy msgboxclosetimesec default
-const MAX_SE = 10;                   // legacy maxsenum default
+const ARC_HEIGHT = 60;
+const REWIND_MS = cfg.rewindMs;
+const MAX_EVENTS = 2_000_000;
+const MAX_VISIBLE = 20000;
 
 const KIND_LAY = 0, KIND_BALLISTIC = 1, KIND_GATEWAY = 2;
 const GATEWAY_POS = new THREE.Vector3(0, FIELD * 0.55, 0);
 
-// flag colors lifted from legacy packter0-9.png (1x1 swatches)
-const FLAG_COLORS = [
-  0xffa3b1, 0x0000ff, 0xff0000, 0x8000ff, 0x008000,
-  0x00ffff, 0xffff00, 0xffffff, 0x00ff00, 0xff8040,
-].map(c => new THREE.Color(c));
+// flag colors from legacy packter0-9.png swatches (config-overridable)
+const FLAG_HEX = cfg.flagColors || [
+  '#ffa3b1', '#0000ff', '#ff0000', '#8000ff', '#008000',
+  '#00ffff', '#ffff00', '#ffffff', '#00ff00', '#ff8040',
+];
+const FLAG_COLORS = FLAG_HEX.map(c => new THREE.Color(c));
+
+// legacy xaxisstart/end etc: remap the normalized coordinate to a sub-range
+// (values accept 0-1 floats or dotted IPv4 strings)
+function axisVal(v) {
+  if (typeof v === 'string' && v.includes('.') && !/^[\d.]+$/.test(v) === false) {
+    const parts = v.split('.').map(Number);
+    if (parts.length === 4 && parts.every(p => p >= 0 && p <= 255)) {
+      return ((parts[0] * 16777216 + parts[1] * 65536 + parts[2] * 256 + parts[3]) >>> 0) / 4294967295;
+    }
+  }
+  return Number(v) || 0;
+}
+const AX = {
+  x0: axisVal(cfg.axis.xStart), x1: axisVal(cfg.axis.xEnd),
+  y0: axisVal(cfg.axis.yStart), y1: axisVal(cfg.axis.yEnd),
+};
+const revX = v => AX.x1 !== AX.x0 ? Math.min(1, Math.max(0, (v - AX.x0) / (AX.x1 - AX.x0))) : v;
+const revY = v => AX.y1 !== AX.y0 ? Math.min(1, Math.max(0, (v - AX.y0) / (AX.y1 - AX.y0))) : v;
 
 // ---- scene -------------------------------------------------------------
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.xr.enabled = true;
+const vrButton = VRButton.createButton(renderer);
+vrButton.style.bottom = '64px';
+document.body.appendChild(vrButton);
+
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000);
 camera.position.set(260, 120, 0);
@@ -32,14 +91,14 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.maxDistance = 800;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+scene.add(new THREE.HemisphereLight(0x9db8d8, 0x3a3a3a, 0.5));
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
 dir.position.set(200, 300, 100);
 scene.add(dir);
 
 const texLoader = new THREE.TextureLoader();
 
-// skydome: legacy texture on an inward-facing sphere; PACKTERSKYDOMETEXTURE swaps it
 let dome = null;
 function setSkydome(url) {
   texLoader.load(url, tex => {
@@ -56,13 +115,13 @@ function setSkydome(url) {
     }
   });
 }
-setSkydome('assets/skydome.png');
+setSkydome(cfg.skydome);
 
-function addBoard(file, pos, rotY, size) {
-  texLoader.load(file, tex => {
+function addBoard(conf, pos, rotY, size) {
+  texLoader.load(conf.texture, tex => {
     tex.colorSpace = THREE.SRGBColorSpace;
     const board = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
+      new THREE.PlaneGeometry(size * conf.scale, size * conf.scale),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
     );
     board.position.copy(pos);
@@ -70,28 +129,53 @@ function addBoard(file, pos, rotY, size) {
     scene.add(board);
   });
 }
-addBoard('assets/packter_sender.png', new THREE.Vector3(0, 0, -BOARD_Z), 0, FIELD * 1.15);
-addBoard('assets/packter_receiver.png', new THREE.Vector3(0, 0, BOARD_Z), Math.PI, FIELD * 1.15);
-addBoard('assets/packter_gateway.png', GATEWAY_POS.clone().add(new THREE.Vector3(0, 20, 0)), Math.PI / 2, 40);
+addBoard(cfg.boards.sender, new THREE.Vector3(0, 0, -BOARD_Z), 0, FIELD * 1.15);
+addBoard(cfg.boards.receiver, new THREE.Vector3(0, 0, BOARD_Z), Math.PI, FIELD * 1.15);
+if (cfg.boards.gateway.enabled) {
+  addBoard(cfg.boards.gateway, GATEWAY_POS.clone().add(new THREE.Vector3(0, 20, 0)), Math.PI / 2, 40);
+}
 
-// flying objects: instanced spheres, per-instance color
-const packetGeo = new THREE.SphereGeometry(2.2, 10, 8);
-const packetMat = new THREE.MeshBasicMaterial();
-const packets = new THREE.InstancedMesh(packetGeo, packetMat, MAX_VISIBLE);
+// optional terrain (ballistic map successor): glTF via config
+if (cfg.terrain && cfg.terrain.url) {
+  new GLTFLoader().load(cfg.terrain.url, g => {
+    g.scene.scale.setScalar(cfg.terrain.scale || 1);
+    scene.add(g.scene);
+  });
+}
+
+// flying objects: the actual legacy ball.x mesh (converted to JSON),
+// lit material so the balls read as spheres; fallback = shaded sphere
+const BALL_SCALE = 4.5 * cfg.size;   // ball.x radius 0.49 -> legacy size 2.2
+const packetMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.05 });
+let packets = new THREE.InstancedMesh(
+  new THREE.SphereGeometry(2.2 * cfg.size, 16, 12), packetMat, MAX_VISIBLE);
 packets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 packets.count = 0;
 scene.add(packets);
 
+fetch(cfg.ball).then(r => r.ok ? r.json() : null).then(d => {
+  if (!d) return;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(d.positions, 3));
+  geo.setIndex(d.indices);
+  if (d.normals) {
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(d.normals, 3));
+  } else {
+    geo.computeVertexNormals();
+  }
+  geo.scale(BALL_SCALE, BALL_SCALE, BALL_SCALE);
+  packets.geometry.dispose();
+  packets.geometry = geo;
+}).catch(() => {});
+
 // ---- event ring buffer (rewind spec: keep last 5 minutes) ---------------
 const ev = { t: [], sx: [], sy: [], dx: [], dy: [], flag: [], kind: [], desc: [] };
 let liveStart = 0;
-let received = 0;
 let ppsWindow = [];
 
 function pushEvent(t, sx, sy, dx, dy, flag, kind, desc) {
   ev.t.push(t); ev.sx.push(sx); ev.sy.push(sy); ev.dx.push(dx); ev.dy.push(dy);
   ev.flag.push(flag); ev.kind.push(kind); ev.desc.push(desc);
-  received++;
 }
 
 function clearEvents() {
@@ -120,13 +204,16 @@ function lowerBound(arr, value) {
   return lo;
 }
 
-// ---- time control (pause / scrub / live) --------------------------------
+// ---- time control --------------------------------------------------------
 let mode = 'live';
 let pausedAt = 0;
 const seek = document.getElementById('seek');
 const timeLabel = document.getElementById('timeLabel');
 const btnPause = document.getElementById('btnPause');
 const btnLive = document.getElementById('btnLive');
+const hud = document.getElementById('hud');
+const timebar = document.getElementById('timebar');
+let hudVisible = true;
 
 function viewTime(now) { return mode === 'live' ? now : pausedAt; }
 function pause(now) { mode = 'paused'; pausedAt = now; btnPause.classList.add('active'); }
@@ -147,6 +234,16 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyB') { if (mode === 'live') pause(now); pausedAt -= e.shiftKey ? FLY_MS / 3 : FLY_MS / 30; }
   if (e.code === 'KeyF') { if (mode === 'live') pause(now); pausedAt += e.shiftKey ? FLY_MS / 3 : FLY_MS / 30; }
   if (e.code === 'Backspace') { if (mode === 'live') pause(now); pausedAt -= 5 * 60 * 1000; e.preventDefault(); }
+  if (e.code === 'Space') {           // legacy: stats display toggle
+    hudVisible = !hudVisible;
+    hud.style.display = hudVisible ? 'block' : 'none';
+    timebar.style.display = hudVisible ? 'flex' : 'none';
+    e.preventDefault();
+  }
+  if (e.code === 'Enter' && e.altKey) { // legacy: Alt+Enter fullscreen
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.body.requestFullscreen();
+  }
 });
 
 // ---- audio (PACKTERSE / PACKTERSOUND) ------------------------------------
@@ -159,9 +256,7 @@ function ensureAudio() {
   if (audioCtx === null) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
 }
 window.addEventListener('pointerdown', ensureAudio, { once: true });
 
@@ -176,7 +271,7 @@ async function loadAudio(file) {
 }
 
 async function playSE(file) {
-  if (audioCtx === null || activeSE >= MAX_SE) return;
+  if (audioCtx === null || activeSE >= cfg.maxSe) return;
   const buf = await loadAudio(file);
   if (!buf) return;
   const src = audioCtx.createBufferSource();
@@ -203,6 +298,14 @@ async function playBGM(time, file) {
 }
 
 // ---- toast (PACKTERMSG / PACKTERHTML) -------------------------------------
+// htmlconvert successor: explicit template variables (裁定2026-06-10)
+function expandTemplate(html) {
+  return html
+    .replaceAll('{{ASSET_URL}}', new URL('assets/legacy/', location.href).href)
+    .replaceAll('{{VIEW_WIDTH}}', String(canvas.clientWidth))
+    .replaceAll('{{VIEW_HEIGHT}}', String(canvas.clientHeight));
+}
+
 function showToast(pic, html) {
   const card = document.createElement('div');
   card.className = 'toastcard';
@@ -214,13 +317,12 @@ function showToast(pic, html) {
   }
   const frame = document.createElement('iframe');
   frame.setAttribute('sandbox', '');   // scripts disabled by default (裁定2026-06-10)
-  frame.srcdoc = html;
+  frame.srcdoc = expandTemplate(html);
   card.appendChild(frame);
   document.getElementById('toast').appendChild(card);
-  setTimeout(() => card.remove(), TOAST_MS);
+  setTimeout(() => card.remove(), cfg.toastMs);
 }
 
-// PACKTERVOICE: strip softalk-style /X:option tokens, speak the rest
 function speak(text) {
   const cleaned = text.replace(/\/[A-Za-z]+:\S*/g, ' ').trim();
   if (!cleaned || !window.speechSynthesis) return;
@@ -241,7 +343,6 @@ function handleControl(c) {
 }
 
 // ---- websocket ----------------------------------------------------------
-const hud = document.getElementById('hud');
 const textDecoder = new TextDecoder();
 let wsState = 'connecting';
 
@@ -272,7 +373,7 @@ function connect() {
       const desc = dlen > 0
         ? textDecoder.decode(new Uint8Array(e.data, off + 24, dlen)) : '';
       off += 24 + dlen;
-      pushEvent(now - age, sx, sy, dx, dy, flag, kind, desc);
+      pushEvent(now - age, revX(sx), revY(sy), revX(dx), revY(dy), flag, kind, desc);
       if (age < 1000) live++;
     }
     if (live > 0) ppsWindow.push([now, live]);
@@ -312,7 +413,7 @@ function packetPosition(i, f, out) {
         );
       }
       break;
-    default: // KIND_LAY
+    default:
       out.set(
         x0 + (x1 - x0) * f,
         y0 + (y1 - y0) * f,
@@ -321,12 +422,11 @@ function packetPosition(i, f, out) {
   }
 }
 
-// ---- selection (click -> description) --------------------------------------
+// ---- selection -------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const selinfo = document.getElementById('selinfo');
-let visMap = [];           // instance index -> event index (rebuilt per frame)
-let selected = -1;         // selected event index
+let visMap = [];
 
 canvas.addEventListener('click', e => {
   pointer.x = (e.clientX / canvas.clientWidth) * 2 - 1;
@@ -334,19 +434,19 @@ canvas.addEventListener('click', e => {
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObject(packets);
   if (hits.length > 0 && hits[0].instanceId !== undefined && visMap[hits[0].instanceId] !== undefined) {
-    selected = visMap[hits[0].instanceId];
-    const kindName = ['lay', 'ballistic', 'gateway'][ev.kind[selected]] || 'lay';
+    const sel = visMap[hits[0].instanceId];
+    const kindName = ['lay', 'ballistic', 'gateway'][ev.kind[sel]] || 'lay';
     selinfo.style.display = 'block';
     selinfo.textContent =
-      `flag:${ev.flag[selected]} (${kindName})\n${ev.desc[selected] || '(no description)'}`;
+      `flag:${ev.flag[sel]} (${kindName})\n${ev.desc[sel] || '(no description)'}`;
   } else {
-    selected = -1;
     selinfo.style.display = 'none';
   }
 });
 
 // ---- render loop ---------------------------------------------------------
 const m4 = new THREE.Matrix4();
+const flagVisible = new Array(10).fill(0);
 
 function updatePackets(vt) {
   let i;
@@ -357,6 +457,7 @@ function updatePackets(vt) {
     i = lowerBound(ev.t, vt - FLY_MS);
   }
   let n = 0;
+  flagVisible.fill(0);
   for (; i < ev.t.length && n < MAX_VISIBLE; i++) {
     const t0 = ev.t[i];
     if (t0 > vt) break;
@@ -365,6 +466,7 @@ function updatePackets(vt) {
     m4.makeTranslation(tmpVec.x, tmpVec.y, tmpVec.z);
     packets.setMatrixAt(n, m4);
     packets.setColorAt(n, FLAG_COLORS[ev.flag[i] % 10]);
+    flagVisible[ev.flag[i] % 10]++;
     visMap[n] = i;
     n++;
   }
@@ -375,23 +477,32 @@ function updatePackets(vt) {
   return n;
 }
 
+function flagStatsHtml() {
+  let out = '';
+  for (let f = 0; f < 10; f++) {
+    if (flagVisible[f] === 0) continue;
+    out += ` <span style="color:${FLAG_HEX[f]}">●</span>${flagVisible[f]}`;
+  }
+  return out || ' -';
+}
+
 let lastPrune = 0, lastHud = 0;
 function frame() {
-  requestAnimationFrame(frame);
   const now = performance.now();
   const vt = viewTime(now);
   const visible = updatePackets(vt);
 
   if (now - lastPrune > 1000) { lastPrune = now; pruneRing(now); }
-  if (now - lastHud > 250) {
+  if (hudVisible && now - lastHud > 250) {
     lastHud = now;
     while (ppsWindow.length && ppsWindow[0][0] < now - 1000) ppsWindow.shift();
     const pps = ppsWindow.reduce((a, s) => a + s[1], 0);
     const span = ev.t.length ? ((ev.t[ev.t.length - 1] - ev.t[0]) / 1000).toFixed(0) : 0;
     hud.innerHTML =
       `PACKTER 3.0 alpha — ${wsState}<br>` +
-      `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / 300s)<br>` +
-      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | keys: S=stop C=live B/F=step Backspace=-5min | click=select`;
+      `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / ${REWIND_MS / 1000}s)<br>` +
+      `flags:${flagStatsHtml()}<br>` +
+      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD Alt+Enter=fullscreen | click=select`;
     if (mode === 'paused') {
       const start = ev.t.length ? Math.max(ev.t[0], now - REWIND_MS) : now - REWIND_MS;
       seek.value = Math.round(1000 * (pausedAt - start) / Math.max(1, now - start));
@@ -410,4 +521,4 @@ function frame() {
   controls.update();
   renderer.render(scene, camera);
 }
-requestAnimationFrame(frame);
+renderer.setAnimationLoop(frame);   // rAF + WebXR both

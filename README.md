@@ -4,8 +4,12 @@
 
 - **broker/** — Rust製ブローカー。旧Packterプロトコル（UDP 11300）を互換受信し、
   33msごとのバイナリバッチをWebSocketで配信。Webビューアの静的配信も担当
-- **web/** — Webビューア（Three.js）。flag色の飛翔体、sender/receiverボード、
-  旧版スカイドームテクスチャ、直近5分の巻き戻し再生（S=停止 / C=LIVE / B,F=コマ送り / スライダー）
+- **web/** — Webビューア（Three.js）。レガシー `ball.x` 由来のボール（陰影つき）が
+  flag色で飛ぶ。3軌道（直線/弾道/ゲートウェイ経由）、クリック選択、
+  PACKTERMSG/HTMLトースト（sandbox iframe）、WebAudio効果音、Web Speech音声、
+  スカイドーム実行時差替、WebXR（VRボタン）、直近5分の巻き戻し再生。
+  操作: S=停止 / C=LIVE / B,F=コマ送り / Backspace=-5分 / Space=HUD / Alt+Enter=全画面。
+  設定は `web/config.json`（サイズ・flag色・ボード・軸レンジ・地形glTF等）
 - **tools/** — テストトラフィック生成（sender.py）
 - **docs/** — プロトコル仕様・プロジェクト系譜
 
