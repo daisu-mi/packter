@@ -25,6 +25,8 @@ static void usage(void)
     printf("      -U ( Read from Snort's UNIX domain socket: optional)\n");
     printf("      -S ( Use Snort's alert for viewer: optional)\n");
     printf("      -d ( Show debug information: optional)\n");
+    printf("      -A [ Agent ID: adds PACKTERAGENT line ] (optional)\n");
+    printf("      -K [ PSK file: HMAC-SHA256 auth, requires -A ] (optional)\n");
     printf("      -R [ Random droprate ] (optional)\n");
     printf("      -T [ Traceback Client ] (optional)\n");
     printf("      -G [ GeoLiteCity datafile ] (optional)\n");
@@ -56,7 +58,7 @@ int main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IONBF, 0);
     packter_ctx_init(&ctx);
 
-    while ((op = getopt(argc, argv, "v:i:r:p:R:T:G:B:f:u:g:nUsSdh?")) != -1) {
+    while ((op = getopt(argc, argv, "v:i:r:p:R:T:G:B:f:u:g:A:K:nUsSdh?")) != -1) {
         switch (op) {
         case 'f': ctx.flagbase = atoi(optarg); break;
         case 'd': ctx.debug = PACKTER_TRUE; break;
@@ -86,6 +88,12 @@ int main(int argc, char *argv[])
             }
             snprintf(ctx.geoip_datfile, PACKTER_BUFSIZ, "%s", optarg);
             break;
+        case 'A': /* agent id (PACKTERAGENT line) */
+            snprintf(ctx.agent_id, sizeof(ctx.agent_id), "%s", optarg);
+            break;
+        case 'K': /* PSK file for HMAC auth */
+            packter_load_psk(&ctx, optarg);
+            break;
         case 'h':
         case '?':
         default:
@@ -98,6 +106,10 @@ int main(int argc, char *argv[])
     }
     if (ctx.flagbase < 0) {
         ctx.flagbase = 0;
+    }
+    if (ctx.psk_len > 0 && ctx.agent_id[0] == '\0') {
+        fprintf(stderr, "-K requires -A <agent id>\n");
+        exit(EXIT_FAILURE);
     }
     if (ctx.rate_limit < 1) {
         ctx.rate_limit = 1;

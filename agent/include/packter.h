@@ -45,8 +45,13 @@
 #define PACKTER_TRUE   1
 #define PACKTER_FALSE  -1
 
-/* bulk send: keep a datagram within a 1500-MTU ethernet payload */
-#define PACKTER_BULK_PAYLOAD 1400
+/* bulk send: keep a datagram within a 1500-MTU ethernet payload,
+ * leaving headroom for the optional PACKTERAGENT auth line (~100B) */
+#define PACKTER_BULK_PAYLOAD 1320
+
+#define PACKTER_AGENT_HEADER "PACKTERAGENT"
+#define PACKTER_AGENT_ID_MAX 64
+#define PACKTER_PSK_MAX      128
 
 /* ---- runtime context (replaces the 15 extern globals of 2.5) ---- */
 typedef struct packter_ctx {
@@ -71,7 +76,15 @@ typedef struct packter_ctx {
     char bulk_buf[PACKTER_BULK_PAYLOAD];
     size_t bulk_len;
     struct timeval bulk_first;
+
+    /* -A <id> / -K <pskfile>: PACKTERAGENT identification + HMAC auth */
+    char agent_id[PACKTER_AGENT_ID_MAX];
+    unsigned char psk[PACKTER_PSK_MAX];
+    size_t psk_len;
 } packter_ctx;
+
+/* read the PSK from the first line of `file` into ctx (lib/send.c) */
+void packter_load_psk(packter_ctx *ctx, const char *file);
 
 void packter_ctx_init(packter_ctx *ctx);
 int  packter_connect(packter_ctx *ctx, const char *ip, int port);

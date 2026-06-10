@@ -27,6 +27,8 @@ static void usage(void)
     printf("      -s ( enable PACKTERSE: optional)\n");
     printf("      -n ( Not send packter packet: optional)\n");
     printf("      -d ( Show debug information: optional)\n");
+    printf("      -A [ Agent ID: adds PACKTERAGENT line ] (optional)\n");
+    printf("      -K [ PSK file: HMAC-SHA256 auth, requires -A ] (optional)\n");
     printf("\n");
     exit(EXIT_SUCCESS);
 }
@@ -85,7 +87,7 @@ int main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IONBF, 0);
     packter_ctx_init(&ctx);
 
-    while ((op = getopt(argc, argv, "v:p:b:l:R:B:f:u:g:nsdh?")) != -1) {
+    while ((op = getopt(argc, argv, "v:p:b:l:R:B:f:u:g:A:K:nsdh?")) != -1) {
         switch (op) {
         case 'f': ctx.flagbase = atoi(optarg); break;
         case 'd': ctx.debug = PACKTER_TRUE; break;
@@ -99,6 +101,12 @@ int main(int argc, char *argv[])
         case 'n': ctx.notsend = PACKTER_TRUE; break;
         case 'R': ctx.rate_limit = atoi(optarg); break;
         case 'B': ctx.bulk_ms = atoi(optarg); break;
+        case 'A': /* agent id (PACKTERAGENT line) */
+            snprintf(ctx.agent_id, sizeof(ctx.agent_id), "%s", optarg);
+            break;
+        case 'K': /* PSK file for HMAC auth */
+            packter_load_psk(&ctx, optarg);
+            break;
         case 'h':
         case '?':
         default:
@@ -106,6 +114,10 @@ int main(int argc, char *argv[])
         }
     }
 
+    if (ctx.psk_len > 0 && ctx.agent_id[0] == '\0') {
+        fprintf(stderr, "-K requires -A <agent id>\n");
+        exit(EXIT_FAILURE);
+    }
     if (ctx.rate_limit < 1) {
         ctx.rate_limit = 1;
     }

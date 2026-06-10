@@ -6,6 +6,7 @@
 
 #include "packter.h"
 #include "../lib/md5.h"
+#include "../lib/sha256.h"
 
 static int failures = 0;
 
@@ -136,9 +137,33 @@ static void test_hash_ip4(void)
     }
 }
 
+static void test_sha256(void)
+{
+    unsigned char d[32];
+    char hex[65];
+    int i;
+
+    pt_sha256((const unsigned char *)"abc", 3, d);
+    for (i = 0; i < 32; i++) {
+        sprintf(hex + i * 2, "%02x", d[i]);
+    }
+    CHECK(strcmp(hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0,
+          "sha256 fips vector");
+
+    /* RFC 4231 test case 2 */
+    pt_hmac_sha256((const unsigned char *)"Jefe", 4,
+                   (const unsigned char *)"what do ya want for nothing?", 28, d);
+    for (i = 0; i < 32; i++) {
+        sprintf(hex + i * 2, "%02x", d[i]);
+    }
+    CHECK(strcmp(hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843") == 0,
+          "hmac-sha256 rfc4231 vector");
+}
+
 int main(void)
 {
     test_md5();
+    test_sha256();
     test_flag_adjust();
     test_mesg_format();
     test_rate();

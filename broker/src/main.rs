@@ -1,3 +1,4 @@
+mod auth;
 mod eve;
 mod parse;
 mod thmon;
@@ -18,6 +19,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{broadcast, mpsc};
 use tower_http::services::ServeDir;
 
+use auth::{AgentDirectory, Verdict};
 use parse::{parse_datagram, Control, Parsed};
 use thmon::{Thmon, ThmonConfig};
 use wire::{control_to_json, encode_fly_frame, json_escape, Stored};
@@ -59,6 +61,7 @@ struct Config {
     eve: Option<String>,
     eve_board: u8,
     boards: Vec<BoardRule>,
+    agents: AgentDirectory,
 }
 
 /// N面配置: map a datagram source address to a viewer board index.
@@ -118,6 +121,7 @@ fn parse_args() -> Config {
         eve: None,
         eve_board: 0,
         boards: Vec::new(),
+        agents: AgentDirectory::default(),
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -137,10 +141,25 @@ fn parse_args() -> Config {
                 let spec = args.next().expect("--board <ip|cidr>=<index>");
                 cfg.boards.push(parse_board_rule(&spec).expect("invalid --board rule"));
             }
+            "--agent" => {
+                let spec = args.next().expect("--agent <id>=<board>");
+                let (id, board) = spec.split_once('=').expect("--agent <id>=<board>");
+                cfg.agents.add_board(id.trim(), board.trim().parse().expect("board index"));
+            }
+            "--agent-key" => {
+                let spec = args.next().expect("--agent-key <id>=<pskfile>");
+                let (id, path) = spec.split_once('=').expect("--agent-key <id>=<pskfile>");
+                let key = std::fs::read_to_string(path.trim()).expect("read psk file");
+                let key = key.lines().next().unwrap_or("").trim();
+                assert!(!key.is_empty(), "psk file is empty");
+                cfg.agents.add_key(id.trim(), key.as_bytes());
+            }
+            "--require-auth" => cfg.agents.require_auth = true,
             "--help" | "-h" => {
                 println!("usage: packter-broker [WEB_DIR] [--udp 11300] [--http 11380]");
                 println!("       [--forward IP:PORT] [--record FILE] [--thmon packter.conf]");
                 println!("       [--eve eve.json] [--eve-board N] [--board <ip|cidr>=<index>]...");
+                println!("       [--agent <id>=<board>]... [--agent-key <id>=<pskfile>]... [--require-auth]");
                 std::process::exit(0);
             }
             other => cfg.web_dir = other.to_string(),
@@ -152,6 +171,8 @@ fn parse_args() -> Config {
 #[tokio::main]
 async fn main() {
     let cfg = parse_args();
+    let auth_keys = cfg.agents.has_keys();
+    let auth_required = cfg.agents.require_auth;
     let (frame_tx, _) = broadcast::channel::<Arc<Message>>(512);
     let (item_tx, item_rx) = mpsc::channel::<Parsed>(65536);
 
@@ -180,7 +201,7 @@ async fn main() {
         record,
     });
 
-    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone()));
+    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents));
     if let Some(path) = cfg.eve.clone() {
         tokio::spawn(eve::tail_eve(path, cfg.eve_board, item_tx.clone()));
     }
@@ -210,6 +231,10 @@ async fn main() {
     }
     for r in &cfg.boards {
         println!("  board rule        : {:?} -> board {}", r.matcher, r.board);
+    }
+    if auth_keys || auth_required {
+        println!("  agent auth        : keys={} require-auth={} (controls gated)",
+                 auth_keys, auth_required);
     }
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind http");
     axum::serve(listener, app).await.expect("serve http");
@@ -325,8 +350,15 @@ async fn batcher(mut rx: mpsc::Receiver<Parsed>, shared: Arc<Shared>, mut thmon:
     }
 }
 
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketAddr>,
-                    boards: Vec<BoardRule>) {
+                    boards: Vec<BoardRule>, agents: AgentDirectory) {
     let sock = UdpSocket::bind(("0.0.0.0", port)).await.expect("bind udp");
     let fwd_sock = if forward.is_some() {
         Some(UdpSocket::bind(("0.0.0.0", 0)).await.expect("bind forward socket"))
@@ -336,19 +368,32 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
     let mut buf = vec![0u8; 65536];
     loop {
         let Ok((len, peer)) = sock.recv_from(&mut buf).await else { continue };
-        if let (Some(fs), Some(dst)) = (&fwd_sock, forward) {
-            let _ = fs.send_to(&buf[..len], dst).await;
-        }
         let Ok(text) = std::str::from_utf8(&buf[..len]) else { continue };
-        let board = board_for(peer.ip(), &boards);
-        for item in parse_datagram(text) {
+        let peeled = match agents.peel(text, unix_now()) {
+            Verdict::Accept(p) => p,
+            Verdict::Reject(reason) => {
+                eprintln!("auth: dropped datagram from {peer}: {reason}");
+                continue;
+            }
+        };
+        if let (Some(fs), Some(dst)) = (&fwd_sock, forward) {
+            // legacy passthrough: forward without the PACKTERAGENT line
+            let _ = fs.send_to(peeled.rest.as_bytes(), dst).await;
+        }
+        let board = peeled.board.unwrap_or_else(|| board_for(peer.ip(), &boards));
+        let ctrl_ok = !agents.controls_need_auth() || peeled.authed;
+        for item in parse_datagram(peeled.rest) {
             match item {
                 Parsed::Fly(mut ev) => {
                     ev.src_board = board;
                     let _ = tx.try_send(Parsed::Fly(ev));
                 }
-                other => {
-                    let _ = tx.try_send(other);
+                Parsed::Ctrl(c) => {
+                    if ctrl_ok {
+                        let _ = tx.try_send(Parsed::Ctrl(c));
+                    } else {
+                        eprintln!("auth: control command from {peer} dropped (unauthenticated)");
+                    }
                 }
             }
         }

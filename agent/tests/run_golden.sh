@@ -22,3 +22,9 @@ frames_plain=$(grep -c '^PACKTER$' got.txt || true)
 frames_bulk=$(../pt_agent -n -B 1000 -r test.pcap | grep -c '^PACKTER$' || true)
 echo "datagrams: plain=$frames_plain bulk=$frames_bulk"
 test "$frames_bulk" -lt "$frames_plain" && echo "golden(bulk-framing): PASS"
+
+echo "--- agent auth (PACKTERAGENT hmac cross-check) ---"
+echo "golden-test-psk-0123456789" > psk_test.txt
+../pt_agent -n -A test-agent -K psk_test.txt -B 1000 -r test.pcap \
+  | python3 check_auth.py psk_test.txt test-agent && echo "golden(auth): PASS"
+rm -f psk_test.txt

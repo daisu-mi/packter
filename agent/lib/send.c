@@ -13,15 +13,87 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 
 #include "packter.h"
+#include "sha256.h"
+
+void packter_load_psk(packter_ctx *ctx, const char *file)
+{
+    FILE *fp;
+    char buf[PACKTER_PSK_MAX + 2];
+    size_t len;
+
+    if ((fp = fopen(file, "r")) == NULL) {
+        fprintf(stderr, "PSK file not readable: %s\n", file);
+        exit(EXIT_FAILURE);
+    }
+    if (fgets(buf, sizeof(buf), fp) == NULL) {
+        fprintf(stderr, "PSK file is empty: %s\n", file);
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+    len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    if (len == 0 || len > PACKTER_PSK_MAX) {
+        fprintf(stderr, "PSK must be 1..%d bytes\n", PACKTER_PSK_MAX);
+        exit(EXIT_FAILURE);
+    }
+    memcpy(ctx->psk, buf, len);
+    ctx->psk_len = len;
+}
+
+/* "PACKTERAGENT <id>\n" or "PACKTERAGENT <id>,<ts>,<hmac64hex>\n";
+ * the HMAC-SHA256 covers "<id>,<ts>\n" + the rest of the datagram */
+static size_t agent_line(packter_ctx *ctx, const char *payload, size_t paylen,
+                         char *out, size_t outlen)
+{
+    long ts = (long)time(NULL);
+
+    if (ctx->psk_len == 0) {
+        return (size_t)snprintf(out, outlen, "%s %s\n",
+                                PACKTER_AGENT_HEADER, ctx->agent_id);
+    }
+    {
+        static unsigned char signbuf[128 + 65536];
+        unsigned char digest[32];
+        char hex[65];
+        size_t signlen;
+        int i;
+
+        signlen = (size_t)snprintf((char *)signbuf, 128, "%s,%ld\n", ctx->agent_id, ts);
+        if (paylen > sizeof(signbuf) - signlen) {
+            paylen = sizeof(signbuf) - signlen;
+        }
+        memcpy(signbuf + signlen, payload, paylen);
+        pt_hmac_sha256(ctx->psk, ctx->psk_len, signbuf, signlen + paylen, digest);
+        for (i = 0; i < 32; i++) {
+            sprintf(hex + i * 2, "%02x", digest[i]);
+        }
+        return (size_t)snprintf(out, outlen, "%s %s,%ld,%s\n",
+                                PACKTER_AGENT_HEADER, ctx->agent_id, ts, hex);
+    }
+}
 
 static void emit(packter_ctx *ctx, const char *mesg, size_t len)
 {
     struct timeval now;
+    static char framed[256 + PACKTER_BUFSIZ_LONG];
+
+    if (ctx->agent_id[0] != '\0') {
+        size_t hlen = agent_line(ctx, mesg, len, framed, 256);
+        if (len > sizeof(framed) - hlen) {
+            len = sizeof(framed) - hlen;
+        }
+        memcpy(framed + hlen, mesg, len);
+        mesg = framed;
+        len = hlen + len;
+    }
 
     if (ctx->notsend == PACKTER_TRUE) {
         if (gettimeofday(&now, NULL) < 0) {

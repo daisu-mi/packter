@@ -66,14 +66,34 @@ count × {
 
 ### N面配置（ボード振り分け）
 
-ブローカーがデータグラムの**送信元アドレス**でボードを割り当てる（Agent無改修）:
+ボード割り当ては **AgentID優先 → 送信元IPルール → 既定0** の順:
 ```
-packter-broker --board 192.168.1.5=2 --board 10.0.0.0/8=3 [--eve-board 4]
+packter-broker --board 192.168.1.5=2 --board 10.0.0.0/8=3   # IPで振り分け
+               --agent sflow1=2 --agent pcap1=0             # AgentIDで振り分け
+               [--eve-board 4]
 ```
-ルール形式は「IP=index」（v4/v6完全一致）または「CIDR=index」（v4）。
-不一致は board 0。ビューア側は config の `boards[]` 配列（position /
-rotationY / size / texture / name）で配置を定義する。レイアウト例:
-`web/config-3boards.json`（`?config=config-3boards.json` で読込）。
+IPルールは「IP=index」（v4/v6完全一致）または「CIDR=index」（v4）。
+ビューア側は config の `boards[]` 配列（position / rotationY / size /
+texture / name）で配置を定義する。レイアウト例: `web/config-3boards.json`
+（`?config=config-3boards.json` で読込）。
+
+### AgentID と認証（同一ホスト対策＋XSS対策）
+
+同一ホストから複数エージェントを動かすとIPで区別できないため、データグラム
+先頭に **AgentID行**を付加できる（Agent `-A <id>`、付けなければ従来どおり）:
+```
+PACKTERAGENT <id>                          識別のみ
+PACKTERAGENT <id>,<unix時刻>,<HMAC64hex>   認証つき（Agent -A <id> -K <pskファイル>）
+```
+- HMAC-SHA256 は PSK をキーに `"<id>,<時刻>\n" + データグラム残り全文` を署名。
+  ブローカーは ±300秒のリプレイ窓で検証
+- ブローカー設定: `--agent-key <id>=<pskファイル>`（鍵はファイルから読む。
+  CLI直書きしないことでps漏洩を回避）。`--require-auth` で匿名/未認証を全拒否
+- **鍵が1つでも設定されると、制御コマンド（MSG/HTML/SE/SOUND/VOICE/SKYDOME）は
+  認証済みエージェントからのみ受理される** → UDP 11300到達だけでHTMLを注入できる
+  XSS経路を封鎖。fly イベントは匿名でも従来どおり受理（後方互換）
+- `--forward`（レガシー転送）時は PACKTERAGENT 行を**剥がして**送るので旧Viewer
+  2.4 は無影響
 
 - ブローカーは33msごとにライブイベントをバッチして1フレームで送る
 - 接続直後、ブローカー側5分リングの内容を同形式でバックフィル（4096件/フレーム）
