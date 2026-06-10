@@ -151,6 +151,10 @@ let packets = new THREE.InstancedMesh(
   new THREE.SphereGeometry(2.2 * cfg.size, 16, 12), packetMat, MAX_VISIBLE);
 packets.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 packets.count = 0;
+// fixed bounding sphere: three.js computes-and-caches it on first raycast,
+// and a raycast while count==0 would cache an empty sphere, breaking
+// selection forever after
+packets.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), FIELD * 3);
 scene.add(packets);
 
 fetch(cfg.ball).then(r => r.ok ? r.json() : null).then(d => {
@@ -241,8 +245,8 @@ window.addEventListener('keydown', e => {
     e.preventDefault();
   }
   if (e.code === 'Enter' && e.altKey) { // legacy: Alt+Enter fullscreen
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.body.requestFullscreen();
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.body.requestFullscreen().catch(() => {});
   }
 });
 
@@ -443,6 +447,12 @@ canvas.addEventListener('click', e => {
     selinfo.style.display = 'none';
   }
 });
+
+// debug/testing hook (read-only introspection for automated checks)
+window.__packter = {
+  packets, camera, raycaster,
+  stats: () => ({ buffered: ev.t.length, visible: packets.count, mode }),
+};
 
 // ---- render loop ---------------------------------------------------------
 const m4 = new THREE.Matrix4();
