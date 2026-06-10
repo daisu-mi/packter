@@ -1,0 +1,17 @@
+[package]
+name = "packter-broker"
+version = "3.0.0-alpha.1"
+edition = "2021"
+license = "BSD-2-Clause"
+description = "Packter broker: legacy UDP ingest, batching, WebSocket fan-out, static viewer hosting"
+
+[dependencies]
+# tokio pinned to 1.38.x: newer tokio pulls windows-sys >=0.61 (raw-dylib),
+# which needs a full mingw binutils on windows-gnu hosts. 1.38 links against
+# prebuilt import libraries and builds with rustup's self-contained toolchain.
+tokio = { version = "=1.38.2", features = ["rt-multi-thread", "net", "sync", "time", "macros", "signal"] }
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["fs"] }
+
+[profile.release]
+lto = true
