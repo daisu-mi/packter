@@ -1,0 +1,34 @@
+# packter-broker --thmon 用設定サンプル
+# 旧 pt_thmon の packter.conf と同じ KEY=VALUE 形式。MON_* キーは互換。
+# 閾値は旧CLIオプション(-S -F -R -I -U -P -C -w)に代わり TH_* キーで指定する。
+
+# ---- 閾値（0-1の比率。未指定の項目は監視しない） ----
+TH_SYN=0.5
+TH_FIN=0.8
+TH_RST=0.8
+TH_ICMP=0.5
+TH_UDP=0.9
+# TH_PPS=1000
+TH_COUNT=500
+TH_INTERVAL=30
+
+# ---- 演出（MON_*: 旧形式互換。PIC/SOUNDはビューアの assets/legacy/ 内） ----
+MON_OPT_MSG_HEAD=<font size=+1>
+MON_OPT_MSG_FOOT=</font>
+MONITOR= 観測値:
+THRESHOLD= 閾値:
+
+MON_SYN_PIC=pic01.png
+MON_SYN_MSG=<b>TCP SYNの比率が閾値を超えました</b><br>
+MON_SYN_SOUND=Detection.wav
+MON_SYN_VOICE=SYNパケットが増加しています
+
+MON_ICMP_PIC=pic02.png
+MON_ICMP_MSG=<b>ICMPの比率が閾値を超えました</b><br>
+MON_ICMP_SOUND=Detection.wav
+
+MON_UDP_PIC=pic03.png
+MON_UDP_MSG=<b>UDPの比率が閾値を超えました</b><br>
+
+# 検知時にスカイドームを差し替える場合
+# MON_SKYDOME_START=texture1.bmp
