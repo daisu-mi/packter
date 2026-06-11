@@ -88,6 +88,7 @@ void packter_load_psk(packter_ctx *ctx, const char *file);
 
 void packter_ctx_init(packter_ctx *ctx);
 int  packter_connect(packter_ctx *ctx, const char *ip, int port);
+int  packter_udp_listen(const char *bind_addr, int port);
 
 /* ---- send path (lib/send.c) ---- */
 void packter_send(packter_ctx *ctx, const char *mesg);

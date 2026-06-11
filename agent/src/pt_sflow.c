@@ -17,7 +17,7 @@ static void usage(void)
     printf("usage: %s \n", progname);
     printf("      -v [ Viewer IP address (IPv4/IPv6) ]\n");
     printf("      -p [ Viewer Port number ] (optional: default %d)\n", PACKTER_VIEWER_PORT);
-    printf("      -b [ sFlow Bind IP address ] (optional: default 0.0.0.0)\n");
+    printf("      -b [ sFlow Bind IP address, v4 or v6 ] (optional: default :: dual-stack)\n");
     printf("      -l [ sFlow Listen port number ] (optional: default %d)\n", PACKTER_SFLOW_PORT);
     printf("      -u [ Run as another username ] (optional)\n");
     printf("      -g [ Run as another groupname ] (optional)\n");
@@ -37,28 +37,9 @@ static void usage(void)
 static void serve(packter_ctx *ctx, const char *bind_addr, int bind_port)
 {
     int sock;
-    struct sockaddr_in server;
     char buf[PACKTER_BUFSIZ_LONG];
 
-    if ((sock = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("socket");
-        exit(EXIT_FAILURE);
-    }
-    memset(&server, 0, sizeof(server));
-    server.sin_family = AF_INET;
-    server.sin_port = htons((uint16_t)bind_port);
-    if (bind_addr != NULL) {
-        if (inet_pton(AF_INET, bind_addr, &server.sin_addr) != 1) {
-            perror("inet_pton");
-            exit(EXIT_FAILURE);
-        }
-    } else {
-        server.sin_addr.s_addr = htonl(INADDR_ANY);
-    }
-    if (bind(sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
-        perror("bind");
-        exit(EXIT_FAILURE);
-    }
+    sock = packter_udp_listen(bind_addr, bind_port);
 
     for (;;) {
         ssize_t len = recv(sock, buf, sizeof(buf), 0);
