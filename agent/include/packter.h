@@ -13,6 +13,20 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 
+/* Big-endian reads from a possibly-unaligned buffer. Casting a packed wire
+ * struct onto an arbitrary datagram offset is undefined behaviour (misaligned
+ * access — harmless on x86 but a SIGBUS on strict-alignment CPUs such as ARM),
+ * so every multi-byte field parsed out of received packets uses these. */
+static inline uint16_t pt_be16(const void *p) {
+    const unsigned char *b = (const unsigned char *)p;
+    return (uint16_t)(((uint16_t)b[0] << 8) | b[1]);
+}
+static inline uint32_t pt_be32(const void *p) {
+    const unsigned char *b = (const unsigned char *)p;
+    return ((uint32_t)b[0] << 24) | ((uint32_t)b[1] << 16) |
+           ((uint32_t)b[2] << 8) | b[3];
+}
+
 #define PACKTER_VERSION      "3.0.0-beta.1"
 
 #define PACKTER_SNAPLEN      128

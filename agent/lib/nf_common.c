@@ -14,22 +14,23 @@
 void nf_template_set(packter_ctx *ctx, pt_map *templates,
                      const char *buf, int setlen, uint32_t key_id, int ipfix)
 {
-    const struct nf_set *nt;
     struct nf_template *np;
     char key[64];
+    unsigned template_id;
     int fieldcount, fieldlen, variable, i;
     int off = (int)sizeof(struct nf_set);
 
     if (setlen - off < (int)sizeof(struct nf_set)) {
         return;
     }
-    nt = (const struct nf_set *)(buf + off);   /* (template_id, field_count) */
+    template_id = pt_be16(buf + off);          /* (template_id, field_count) */
+    fieldcount  = pt_be16(buf + off + 2);
     off += (int)sizeof(struct nf_set);
 
-    snprintf(key, sizeof(key), "%u-%u", key_id, (unsigned)ntohs(nt->id));
+    snprintf(key, sizeof(key), "%u-%u", key_id, template_id);
     if (ctx->debug == PACKTER_TRUE) {
         printf("%s SET templateid:%u, id:%u\n",
-               ipfix ? "ipfix" : "netflow", (unsigned)ntohs(nt->id), key_id);
+               ipfix ? "ipfix" : "netflow", template_id, key_id);
     }
 
     np = pt_map_get(templates, key);
@@ -45,19 +46,16 @@ void nf_template_set(packter_ctx *ctx, pt_map *templates,
     np->proto = np->icmp = np->tcp_flags = NF_ABSENT;
     np->isv6 = 0;
 
-    fieldcount = ntohs(nt->len);
     fieldlen = 0;
     variable = 0;
     for (i = 0; i < fieldcount; i++) {
-        const struct nf_field *nf;
         uint16_t ie, flen;
 
         if (setlen - off < (int)sizeof(struct nf_field)) {
             break;
         }
-        nf = (const struct nf_field *)(buf + off);
-        ie = ntohs(nf->type);
-        flen = ntohs(nf->len);
+        ie = pt_be16(buf + off);
+        flen = pt_be16(buf + off + 2);
         off += (int)sizeof(struct nf_field);
 
         /* IPFIX enterprise-specific field: a 4-byte enterprise number
@@ -104,7 +102,6 @@ void nf_template_set(packter_ctx *ctx, pt_map *templates,
 void nf_flow_set(packter_ctx *ctx, pt_map *templates,
                  const char *buf, int setlen, uint32_t key_id)
 {
-    const struct nf_set *nt;
     const struct nf_template *np;
     char key[64];
     char srcip[INET6_ADDRSTRLEN];
@@ -116,9 +113,8 @@ void nf_flow_set(packter_ctx *ctx, pt_map *templates,
     if (setlen < (int)sizeof(struct nf_set)) {
         return;
     }
-    nt = (const struct nf_set *)buf;
 
-    snprintf(key, sizeof(key), "%u-%u", key_id, (unsigned)ntohs(nt->id));
+    snprintf(key, sizeof(key), "%u-%u", key_id, (unsigned)pt_be16(buf));
     np = pt_map_get(templates, key);
     if (np == NULL) {
         return;   /* unknown until its template arrives */

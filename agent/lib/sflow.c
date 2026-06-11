@@ -46,33 +46,34 @@ struct sflow_ex_router { uint32_t type, num; struct in_addr nexthop; uint32_t sr
 
 void packter_sflow_read(packter_ctx *ctx, const char *buf, int len)
 {
-    const struct sflow_v4_header *header;
     int num, i;
     int off = 0;
+    uint32_t version;
 
     if (len < (int)sizeof(struct sflow_v4_header)) {
         return;
     }
-    header = (const struct sflow_v4_header *)buf;
+    version = pt_be32(buf + offsetof(struct sflow_v4_header, version));
     if (ctx->debug == PACKTER_TRUE) {
-        printf("version:%d:%d, seq:%d, uptime:%d, sample:%d\n",
-               ntohl(header->version), ntohl(header->counter_version),
-               ntohl(header->seq), ntohl(header->sysuptime),
-               ntohl(header->numsamples));
+        printf("version:%u:%u, seq:%u, uptime:%u, sample:%u\n",
+               version,
+               pt_be32(buf + offsetof(struct sflow_v4_header, counter_version)),
+               pt_be32(buf + offsetof(struct sflow_v4_header, seq)),
+               pt_be32(buf + offsetof(struct sflow_v4_header, sysuptime)),
+               pt_be32(buf + offsetof(struct sflow_v4_header, numsamples)));
     }
     /* only sFlow v4 is parsed here; v5/other are ignored (broker handles v5) */
-    if (ntohl(header->version) != 4) {
+    if (version != 4) {
         if (ctx->debug == PACKTER_TRUE) {
-            printf("sflow: ignoring datagram version %d (only v4 supported)\n",
-                   ntohl(header->version));
+            printf("sflow: ignoring datagram version %u (only v4 supported)\n",
+                   version);
         }
         return;
     }
-    num = (int)ntohl(header->numsamples);
+    num = (int)pt_be32(buf + offsetof(struct sflow_v4_header, numsamples));
     off += (int)sizeof(struct sflow_v4_header);
 
     for (i = 0; i < num; i++) {
-        const struct sflow_sample *sample;
         struct pcap_pkthdr pkth;
         char mesgbuf[PACKTER_BUFSIZ];
         int samplelen, padding;
@@ -80,8 +81,7 @@ void packter_sflow_read(packter_ctx *ctx, const char *buf, int len)
         if (off + (int)sizeof(struct sflow_sample) > len) {
             break;
         }
-        sample = (const struct sflow_sample *)(buf + off);
-        samplelen = (int)ntohl(sample->len);
+        samplelen = (int)pt_be32(buf + off + offsetof(struct sflow_sample, len));
         padding = (samplelen % 4 > 0) ? 4 - (samplelen % 4) : 0;
         off += (int)sizeof(struct sflow_sample);
 
@@ -105,18 +105,15 @@ void packter_sflow_read(packter_ctx *ctx, const char *buf, int len)
             break;
         }
         {
-            const struct sflow_ex_num *ex_num = (const struct sflow_ex_num *)(buf + off);
-            int exnum = (int)ntohl(ex_num->num);
+            int exnum = (int)pt_be32(buf + off);   /* sflow_ex_num.num */
             int j;
             off += (int)sizeof(struct sflow_ex_num);
 
             for (j = 0; j < exnum; j++) {
-                const struct sflow_ex_type *ex_type;
                 if (off + (int)sizeof(struct sflow_ex_type) > len) {
                     break;
                 }
-                ex_type = (const struct sflow_ex_type *)(buf + off);
-                switch (ntohl(ex_type->type)) {
+                switch (pt_be32(buf + off)) {        /* sflow_ex_type.type */
                 case SFLOW_EX_SWITCH:
                     off += (int)sizeof(struct sflow_ex_switch);
                     break;

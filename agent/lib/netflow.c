@@ -28,39 +28,37 @@ struct nf9_header {
 void packter_netflow_read(packter_ctx *ctx, pt_map *templates,
                           const char *buf, int len)
 {
-    const struct nf9_header *nh;
     uint32_t srcid;
+    unsigned version;
 
     if (len < (int)sizeof(struct nf9_header)) {
         return;
     }
-    nh = (const struct nf9_header *)buf;
     /* only NetFlow v9 here; v5/IPFIX(v10) are ignored */
-    if (ntohs(nh->version) != 9) {
+    version = pt_be16(buf);              /* nf9_header.version @ offset 0 */
+    if (version != 9) {
         if (ctx->debug == PACKTER_TRUE) {
-            printf("netflow: ignoring datagram version %d (only v9 supported)\n",
-                   ntohs(nh->version));
+            printf("netflow: ignoring datagram version %u (only v9 supported)\n",
+                   version);
         }
         return;
     }
-    srcid = ntohl(nh->srcid);
+    srcid = pt_be32(buf + 16);           /* nf9_header.srcid @ offset 16 */
     buf += sizeof(struct nf9_header);
     len -= (int)sizeof(struct nf9_header);
 
     while (len > 0) {
-        const struct nf_set *nt;
         int setlen;
         unsigned id;
 
         if (len < (int)sizeof(struct nf_set)) {
             break;
         }
-        nt = (const struct nf_set *)buf;
-        setlen = ntohs(nt->len);
+        setlen = pt_be16(buf + 2);       /* nf_set.len */
         if (setlen < (int)sizeof(struct nf_set) || setlen > len) {
             break;
         }
-        id = ntohs(nt->id);
+        id = pt_be16(buf);               /* nf_set.id */
 
         if (id == NF9_TEMPLATE_SET) {
             nf_template_set(ctx, templates, buf, setlen, srcid, 0);

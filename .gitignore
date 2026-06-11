@@ -1,5 +1,6 @@
 broker/target/
 *.exe
+.claude/
 __pycache__/
 *.o
 *.a

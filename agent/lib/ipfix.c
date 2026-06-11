@@ -29,26 +29,26 @@ struct ipfix_header {
 void packter_ipfix_read(packter_ctx *ctx, pt_map *templates,
                         const char *buf, int len)
 {
-    const struct ipfix_header *ih;
     uint32_t domain;
+    unsigned version;
     int msglen;
 
     if (len < (int)sizeof(struct ipfix_header)) {
         return;
     }
-    ih = (const struct ipfix_header *)buf;
-    if (ntohs(ih->version) != 10) {
+    version = pt_be16(buf);              /* ipfix_header.version @ offset 0 */
+    if (version != 10) {
         if (ctx->debug == PACKTER_TRUE) {
-            printf("ipfix: ignoring datagram version %d (only v10 supported)\n",
-                   ntohs(ih->version));
+            printf("ipfix: ignoring datagram version %u (only v10 supported)\n",
+                   version);
         }
         return;
     }
-    domain = ntohl(ih->domain);
+    domain = pt_be32(buf + 12);          /* ipfix_header.domain @ offset 12 */
 
     /* honour the header's declared message length when it is shorter than
      * what we received (trailing bytes / coalesced datagrams) */
-    msglen = ntohs(ih->length);
+    msglen = pt_be16(buf + 2);           /* ipfix_header.length @ offset 2 */
     if (msglen >= (int)sizeof(struct ipfix_header) && msglen < len) {
         len = msglen;
     }
@@ -57,19 +57,17 @@ void packter_ipfix_read(packter_ctx *ctx, pt_map *templates,
     len -= (int)sizeof(struct ipfix_header);
 
     while (len > 0) {
-        const struct nf_set *nt;
         int setlen;
         unsigned id;
 
         if (len < (int)sizeof(struct nf_set)) {
             break;
         }
-        nt = (const struct nf_set *)buf;
-        setlen = ntohs(nt->len);
+        setlen = pt_be16(buf + 2);       /* nf_set.len */
         if (setlen < (int)sizeof(struct nf_set) || setlen > len) {
             break;
         }
-        id = ntohs(nt->id);
+        id = pt_be16(buf);               /* nf_set.id */
 
         if (id == IPFIX_TEMPLATE_SET) {
             nf_template_set(ctx, templates, buf, setlen, domain, 1);
