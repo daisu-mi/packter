@@ -159,12 +159,14 @@ function makeLabelSprite(initial) {
   return { sprite, draw };
 }
 
-// boards are the edges of a regular N-gon in the XY plane facing the
-// camera. The receiver (board index 1, the fly destination) is the TOP
-// edge; the senders fill the remaining edges going counter-clockwise.
-// N=3 -> triangle, N=4 -> square, N=5 -> pentagon, ... Board count comes
-// from the broker's {"t":"layout","count":N} announcement.
-const GON_RADIUS = cfg.radius ?? 230;   // circumradius (vertex distance)
+// boards are vertical walls standing on the ground (XZ plane), arranged
+// around a circle facing the centre. Seen from straight above they read
+// as bars laid out in a triangle/square/pentagon "shape" (the edges do
+// NOT join — they are separate walls with gaps). The receiver (board
+// index 1, the fly destination) sits at the far side; senders fan toward
+// the camera. Packets fly across the arena from each agent wall to the
+// receiver wall. Board count comes from {"t":"layout","count":N}.
+const BOARD_S = cfg.boardSize ?? 200;   // square wall size
 const boardFrames = [];      // index -> { origin, rx, uy, name }
 const boardObjects = [];     // index -> { panel, border, sprite } (teardown)
 const boardHidden = [];      // index -> bool (viewer-side live filter)
@@ -172,6 +174,14 @@ const boardHidden = [];      // index -> bool (viewer-side live filter)
 function defaultBoardName(i) {
   if (i === 1) return 'receiver';
   return `agent${i < 1 ? i + 1 : i}`;
+}
+
+// circle radius that keeps the walls from overlapping (gaps are fine);
+// N=2 stays the classic facing pair.
+function ringRadius(count) {
+  if (cfg.radius) return cfg.radius;
+  if (count === 2) return 110;
+  return Math.max(140, 0.62 * BOARD_S / Math.sin(Math.PI / count));
 }
 
 function rebuildBoards(count) {
@@ -186,37 +196,32 @@ function rebuildBoards(count) {
   boardFrames.length = 0;
   boardLabelDraw.length = 0;
 
-  const Rc = GON_RADIUS;                                   // circumradius
-  // edge midpoint distance (apothem). N=2 degenerates, so place the two
-  // boards as a top/bottom facing pair instead.
-  const apothem = count === 2 ? Rc * 0.6 : Rc * Math.cos(Math.PI / count);
-  const sideLen = count === 2 ? Rc * 1.5 : 2 * Rc * Math.sin(Math.PI / count) * 0.92;
-  const thickness = Rc * 0.13;
+  const R = ringRadius(count);
+  const up = new THREE.Vector3(0, 1, 0);
 
-  // slot order around the polygon: receiver (1) at the top edge, then the
-  // senders in ascending index order, counter-clockwise
+  // slot order: receiver (1) at the far side, then senders ascending,
+  // fanning to the near-left / near-right (so agent1 lands on the left)
   const order = [1];
   for (let k = 0; k < count; k++) if (k !== 1) order.push(k);
 
   for (let s = 0; s < order.length; s++) {
     const i = order[s];
-    const beta = Math.PI / 2 + (2 * Math.PI * s) / count;  // top edge first
-    const cb = Math.cos(beta), sb = Math.sin(beta);
-    const origin = new THREE.Vector3(apothem * cb, apothem * sb, 0);
-    const tangent = new THREE.Vector3(-sb, cb, 0);         // along the edge
-    const radial = new THREE.Vector3(cb, sb, 0);           // outward normal in-plane
+    const phi = -(2 * Math.PI * s) / count;                // receiver at phi=0 (far)
+    const cp = Math.cos(phi), sp = Math.sin(phi);
+    const origin = new THREE.Vector3(R * sp, 0, -R * cp);  // on the ground circle
+    const tangent = new THREE.Vector3(cp, 0, sp);          // wall width direction
     const name = cfg.boards?.[i]?.name ?? defaultBoardName(i);
 
-    const panelGeo = new THREE.PlaneGeometry(sideLen, thickness);
+    const panelGeo = new THREE.PlaneGeometry(BOARD_S, BOARD_S);
     const panel = new THREE.Mesh(
       panelGeo,
       new THREE.MeshBasicMaterial({
-        color: 0xf4f8fd, transparent: true, opacity: 0.34,
+        color: 0xf4f8fd, transparent: true, opacity: 0.32,
         side: THREE.DoubleSide, depthWrite: false,
       }),
     );
     panel.position.copy(origin);
-    panel.rotation.z = beta + Math.PI / 2;                 // long axis along edge
+    panel.rotation.y = -phi;                               // face the centre
     scene.add(panel);
 
     const border = new THREE.LineSegments(
@@ -224,14 +229,13 @@ function rebuildBoards(count) {
       new THREE.LineBasicMaterial({ color: 0x1b4a73, transparent: true, opacity: 0.95 }),
     );
     border.position.copy(origin);
-    border.rotation.z = beta + Math.PI / 2;
+    border.rotation.y = -phi;
     scene.add(border);
 
     const caption = boardLabelText[i] || cfg.boards?.[i]?.label || name;
     const { sprite, draw } = makeLabelSprite(caption);
-    // label floats just outside the edge so it never covers the packets
-    sprite.position.copy(origin).addScaledVector(radial, thickness * 0.5 + Rc * 0.1);
-    sprite.scale.set(Math.min(sideLen * 0.9, Rc * 0.95), Rc * 0.16, 1);
+    sprite.position.copy(origin).addScaledVector(up, BOARD_S * 0.62);
+    sprite.scale.set(BOARD_S * 0.9, BOARD_S * 0.22, 1);
     scene.add(sprite);
 
     panel.visible = !boardHidden[i];
@@ -242,18 +246,17 @@ function rebuildBoards(count) {
     boardLabelText[i] = caption;
     boardFrames[i] = {
       origin,
-      rx: tangent.multiplyScalar(sideLen),
-      uy: radial.multiplyScalar(thickness),
+      rx: tangent.multiplyScalar(BOARD_S),
+      uy: up.clone().multiplyScalar(BOARD_S),
       name,
     };
   }
 
-  // straight-on front view of the polygon (matches the flat sketch),
-  // panned up a touch so the top board clears the HUD; the layout count
-  // is fixed per broker so this runs rarely
-  camera.position.set(0, Rc * 0.16, Rc * 2.55);
-  controls.target.set(0, Rc * 0.16, 0);
-  controls.maxDistance = Rc * 6;
+  // elevated view from the near side looking toward the far receiver, so
+  // the ring reads like the top-down sketch and packet flow is visible
+  camera.position.set(0, R * 2.0, R * 3.0);
+  controls.target.set(0, 0, -R * 0.15);
+  controls.maxDistance = R * 8;
   controls.update();
 }
 
@@ -554,7 +557,7 @@ function packetPosition(i, f, out) {
   switch (ev.kind[i]) {
     case KIND_BALLISTIC:
       out.lerpVectors(srcPt, dstPt, f);
-      out.z += Math.sin(Math.PI * f) * ARC_HEIGHT;   // arc toward the camera
+      out.y += Math.sin(Math.PI * f) * ARC_HEIGHT;   // arc up over the arena
       break;
     default:
       out.lerpVectors(srcPt, dstPt, f);
