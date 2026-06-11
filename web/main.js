@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ---- configuration (web/config.json, all keys optional) -----------------
@@ -22,7 +21,6 @@ const DEFAULTS = {
   flagColors: null,
   axis: { xStart: 0.0, xEnd: 1.0, yStart: 0.0, yEnd: 1.0 },
   boards: DEFAULT_BOARDS,
-  gateway: { texture: 'assets/compiled/packter_gateway.png', enabled: true, position: [0, 110, 0], size: 40 },
   ball: 'assets/ball.json',
   terrain: null,
 };
@@ -38,12 +36,7 @@ function migrateBoards(user) {
   if (old.sender?.scale) arr[0].size = 230 * old.sender.scale;
   if (old.receiver?.texture) arr[1].texture = old.receiver.texture;
   if (old.receiver?.scale) arr[1].size = 230 * old.receiver.scale;
-  user = { ...user, boards: arr };
-  if (old.gateway) {
-    user.gateway = { ...DEFAULTS.gateway, enabled: old.gateway.enabled !== false,
-                     texture: old.gateway.texture || DEFAULTS.gateway.texture };
-  }
-  return user;
+  return { ...user, boards: arr };
 }
 
 let cfg = DEFAULTS;
@@ -56,7 +49,6 @@ try {
     cfg = {
       ...DEFAULTS, ...user,
       axis: { ...DEFAULTS.axis, ...(user.axis || {}) },
-      gateway: { ...DEFAULTS.gateway, ...(user.gateway || {}) },
       boards: (Array.isArray(user.boards) && user.boards.length >= 2) ? user.boards : DEFAULT_BOARDS,
     };
   }
@@ -69,8 +61,7 @@ const REWIND_MS = cfg.rewindMs;
 const MAX_EVENTS = 2_000_000;
 const MAX_VISIBLE = 20000;
 
-const KIND_LAY = 0, KIND_BALLISTIC = 1, KIND_GATEWAY = 2;
-const GATEWAY_POS = new THREE.Vector3(...cfg.gateway.position);
+const KIND_LAY = 0, KIND_BALLISTIC = 1;
 
 // flag colors from legacy packter0-9.png swatches (config-overridable)
 const FLAG_HEX = cfg.flagColors || [
@@ -101,11 +92,6 @@ const revY = v => AX.y1 !== AX.y0 ? Math.min(1, Math.max(0, (v - AX.y0) / (AX.y1
 const canvas = document.getElementById('view');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.xr.enabled = true;
-const vrButton = VRButton.createButton(renderer);
-vrButton.style.bottom = '64px';
-document.body.appendChild(vrButton);
-
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000);
 camera.position.set(260, 120, 0);
@@ -171,10 +157,6 @@ function boardPoint(idx, nx, ny, out) {
   return out;
 }
 
-if (cfg.gateway.enabled) {
-  addBoardMesh(cfg.gateway.texture,
-    GATEWAY_POS.clone().add(new THREE.Vector3(0, 20, 0)), Math.PI / 2, cfg.gateway.size);
-}
 
 // optional terrain (ballistic map successor): glTF via config
 if (cfg.terrain && cfg.terrain.url) {
@@ -441,13 +423,6 @@ function packetPosition(i, f, out) {
       out.lerpVectors(srcPt, dstPt, f);
       out.y += Math.sin(Math.PI * f) * ARC_HEIGHT;
       break;
-    case KIND_GATEWAY:
-      if (f < 0.5) {
-        out.lerpVectors(srcPt, GATEWAY_POS, f * 2);
-      } else {
-        out.lerpVectors(GATEWAY_POS, dstPt, (f - 0.5) * 2);
-      }
-      break;
     default:
       out.lerpVectors(srcPt, dstPt, f);
   }
@@ -466,7 +441,7 @@ canvas.addEventListener('click', e => {
   const hits = raycaster.intersectObject(packets);
   if (hits.length > 0 && hits[0].instanceId !== undefined && visMap[hits[0].instanceId] !== undefined) {
     const sel = visMap[hits[0].instanceId];
-    const kindName = ['lay', 'ballistic', 'gateway'][ev.kind[sel]] || 'lay';
+    const kindName = ['lay', 'ballistic'][ev.kind[sel]] || 'lay';
     const bName = idx => boardFrames[idx]?.name || `board${idx}`;
     selinfo.style.display = 'block';
     selinfo.textContent =
@@ -568,4 +543,4 @@ function frame() {
   controls.update();
   renderer.render(scene, camera);
 }
-renderer.setAnimationLoop(frame);   // rAF + WebXR both
+renderer.setAnimationLoop(frame);

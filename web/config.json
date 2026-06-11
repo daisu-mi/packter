@@ -16,7 +16,6 @@
     { "name": "sender",   "texture": "assets/compiled/packter_sender.png",   "position": [0, 0, -110], "rotationY": 0,      "size": 230 },
     { "name": "receiver", "texture": "assets/compiled/packter_receiver.png", "position": [0, 0, 110],  "rotationY": 3.14159, "size": 230 }
   ],
-  "gateway": { "texture": "assets/compiled/packter_gateway.png", "enabled": true, "position": [0, 110, 0], "size": 40 },
   "ball": "assets/ball.json",
   "terrain": null
 }

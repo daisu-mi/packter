@@ -4,6 +4,5 @@
     { "name": "pcap-sender",  "texture": "assets/compiled/packter_sender.png",   "position": [-130, 0, -75], "rotationY": 1.0472,  "size": 180 },
     { "name": "receiver",     "texture": "assets/compiled/packter_receiver.png", "position": [0, 0, 150],    "rotationY": 3.14159, "size": 180 },
     { "name": "sflow-sender", "texture": "assets/compiled/packter_sender.png",   "position": [130, 0, -75],  "rotationY": -1.0472, "size": 180 }
-  ],
-  "gateway": { "texture": "assets/compiled/packter_gateway.png", "enabled": true, "position": [0, 110, 0], "size": 40 }
+  ]
 }
