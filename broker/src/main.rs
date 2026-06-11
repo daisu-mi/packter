@@ -219,9 +219,10 @@ async fn main() {
 
     let thmon = cfg.thmon.as_ref().map(|path| {
         let tc = ThmonConfig::from_file(path).expect("read thmon config");
-        if !tc.any_threshold() {
-            println!("*** thmon: no TH_* threshold given, monitor will not alert ***");
-        }
+        println!(
+            "thmon: adaptive detection active (CUSUM on SYN/FIN imbalance + EWMA bands){}",
+            if tc.any_hard_cap() { ", plus TH_* hard caps" } else { "" }
+        );
         Thmon::new(tc)
     });
 

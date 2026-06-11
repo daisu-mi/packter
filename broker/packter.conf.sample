@@ -1,16 +1,30 @@
 # packter-broker --thmon 用設定サンプル
 # 旧 pt_thmon の packter.conf と同じ KEY=VALUE 形式。MON_* キーは互換。
-# 閾値は旧CLIオプション(-S -F -R -I -U -P -C -w)に代わり TH_* キーで指定する。
+#
+# 検知は適応型（自己調整）。閾値の手設定は不要:
+#   * SYNフラッド … SYN−FIN(+RST)不均衡への非パラメトリックCUSUM
+#                   (Wang/Zhang/Shin, INFOCOM 2002)。正常時のバランスをEWMAで
+#                   学習し、変化点で発報。
+#   * FIN/RST・ICMP・UDP・PPS … EWMA管理図。平均±k·σ のバンドを外れたら発報。
+# 起動後 TH_WARMUP 窓は学習のみ（発報しない）。
 
-# ---- 閾値（0-1の比率。未指定の項目は監視しない） ----
-TH_SYN=0.5
-TH_FIN=0.8
-TH_RST=0.8
-TH_ICMP=0.5
-TH_UDP=0.9
-# TH_PPS=1000
-TH_COUNT=500
-TH_INTERVAL=30
+# ---- 適応検知のチューニング（すべて任意・既定値で動く） ----
+# TH_COUNT=500       # 1窓のパケット数（観測の粒度）
+# TH_INTERVAL=30     # 発報後のクールダウン秒（連続発報の抑制）
+# TH_WARMUP=8        # ベースライン学習に使う窓数（この間は発報しない）
+# TH_LAMBDA=0.3      # EWMAの重み（大きいほど直近重視・速い適応）
+# TH_EWMA_K=3.0      # バンド幅（平均+ k·σ）。大きいほど鈍感
+# TH_CUSUM_K=0.5     # CUSUMのスラック（σ単位）
+# TH_CUSUM_H=5.0     # CUSUMの判定境界（σ単位）。大きいほど鈍感
+
+# ---- 任意の絶対ハードキャップ（0-1の比率。設定時のみ・学習前でも即発報） ----
+# 適応検知に加えて「この比率を超えたら無条件で発報」の上限を置きたい場合だけ指定。
+# TH_SYN=0.8
+# TH_FIN=0.9
+# TH_RST=0.9
+# TH_ICMP=0.7
+# TH_UDP=0.95
+# TH_PPS=10000
 
 # ---- 演出（MON_*: 旧形式互換。PIC/SOUNDはビューアの assets/legacy/ 内） ----
 MON_OPT_MSG_HEAD=<font size=+1>

@@ -28,7 +28,7 @@ cargo build --release
 | `--require-auth` | off | 匿名・未認証を全拒否 |
 | `--forward <ip:port>` | — | 受信生データを旧Viewer等へ転送（PACKTERAGENT行は除去） |
 | `--record <file>` | — | JSONL録画 |
-| `--thmon <conf>` | — | しきい値監視（旧packter.conf互換、`broker/packter.conf.sample`） |
+| `--thmon <conf>` | — | 適応型トラフィック監視（CUSUM＋EWMA、旧packter.conf互換、`broker/packter.conf.sample`） |
 | `--eve <file>` | — | Suricata EVE JSON を tail して取り込み |
 | `--eve-board <N>` | 0 | EVE由来イベントのボード |
 
