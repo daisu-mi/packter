@@ -669,7 +669,7 @@ function frame() {
     const pps = ppsWindow.reduce((a, s) => a + s[1], 0);
     const span = ev.t.length ? ((ev.t[ev.t.length - 1] - ev.t[0]) / 1000).toFixed(0) : 0;
     hud.innerHTML =
-      `PACKTER 3.0 alpha — ${wsState}<br>` +
+      `PACKTER 3.0 beta — ${wsState}<br>` +
       `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / ${REWIND_MS / 1000}s)<br>` +
       `flags:${flagStatsHtml()}<br>` +
       `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide P=png | click=select`;

@@ -1,45 +1,90 @@
-# PACKTER 3.0 (alpha)
+# PACKTER 3.0
 
-インターネットトラフィック可視化ツール PACKTER の現代化版。
+インターネットトラフィック／サイバー攻撃の 3D 可視化ツール **PACKTER** の現代化版
+（2008年初版の後継）。エージェントが集めたトラフィックを、ブラウザ上で飛翔体として
+リアルタイムに可視化します。系譜は NICTER の「CUBE」に連なります（[docs/HISTORY.md](docs/HISTORY.md)）。
+
+```
+旧 PackterAgent ──UDP 11300──▶ packter-broker(Rust) ──WebSocket──▶ Web ビューア(Three.js)
+ (pt_agent 等)                  集約・録画・認証・配信              ブラウザで可視化
+```
+
+## 構成
 
 - **broker/** — Rust製ブローカー。旧Packterプロトコル（UDP 11300）を互換受信し、
-  33msごとのバイナリバッチをWebSocketで配信。Webビューアの静的配信も担当
-- **web/** — Webビューア（Three.js）。レガシー `ball.x` 由来のボール（陰影つき）が
-  flag色で飛ぶ。3軌道（直線/弾道/ゲートウェイ経由）、クリック選択、
-  PACKTERMSG/HTMLトースト（sandbox iframe）、WebAudio効果音、Web Speech音声、
-  スカイドーム実行時差替、WebXR（VRボタン）、直近5分の巻き戻し再生。
-  操作: S=停止 / C=LIVE / B,F=コマ送り / Backspace=-5分 / Space=HUD / Alt+Enter=全画面。
-  設定は `web/config.json`（サイズ・flag色・ボード・軸レンジ・地形glTF等）
-- **tools/** — テストトラフィック生成（sender.py）
-- **docs/** — プロトコル仕様・プロジェクト系譜
+  33msごとにバッチした飛翔体をWebSocketバイナリで配信。Webビューアの静的配信、
+  直近5分のリングバッファ（巻き戻し・途中参加バックフィル）、JSONL録画、
+  しきい値監視（thmon）、Suricata EVE取り込み、エージェント認証も担う単一バイナリ
+- **agent/** — C言語のエージェント群（`pt_agent` / `pt_sflow` / `pt_netflow` /
+  `pt_thmon` / `pt_replay`）。PackterAgent 2.5 の全面リライト。依存は libpcap のみ
+- **web/** — Webビューア（Three.js）。flag色のボールが Agent ボードから Receiver
+  ボードへ飛ぶ。N枚配置（真上から見ると三角〜六角“状”）、巻き戻し、選択、トースト、
+  音声、スカイドーム差替、PNG保存
+- **tools/** — テストトラフィック生成（`sender.py`）・アセット変換スクリプト
+- **docs/** — 仕様・インストール・移行・検証・系譜
 
 ## クイックスタート
 
-```
-cd broker
-cargo run --release -- ../web      # UDP 11300 で受信、http://localhost:11380/ でビューア
-python ../tools/sender.py --pps 300   # テストトラフィック
+```sh
+# 1) ブローカー起動（UDP 11300 受信、http://localhost:11380/ でビューア配信）
+broker/target/release/packter-broker  web
+
+# 2) エージェントを向ける（実トラフィック）
+agent/pt_agent -v <brokerのIP> -i eth0
+
+#    またはテストトラフィック
+python tools/sender.py --pps 300
 ```
 
-既存の PackterAgent 2.5（pt_agent / pt_sflow / pt_netflow）は無改修でそのまま使えます:
+ブラウザで `http://localhost:11380/` を開く。
 
+## N枚配置（複数エージェント）
+
+ブローカーがエージェントをボードに割り当て、ビューアが地面に壁を円状配置します
+（真上から見ると Receiver を頂点とした多角形“状”）。
+
+```sh
+packter-broker web --boards 4 \
+  --agent border-fw=0 --agent dmz-sflow=2 --agent core-tap=3
 ```
-pt_agent -v <brokerのIP> -i eth0
-```
+
+エージェント側は `pt_agent -A <id>` で名乗ると、その壁のキャプションになります。
+
+| 枚数 | 形 | 例 |
+|---|---|---|
+| 2 | 対向 | sender / receiver |
+| 3 | 三角形 | ![3](docs/img/3board-flow.png) |
+| 4 | 四角形 | ![4](docs/img/4board-flow.png) |
+| 5 | 五角形 | ![5](docs/img/5board-flow.png) |
+| 6 | 六角形 | ![6](docs/img/6board-flow.png) |
+
+## ビューア操作
+
+`S`=停止 / `C`=ライブ復帰 / `B`,`F`=コマ送り / `Backspace`=-5分 / スライダー=スクラブ /
+`Space`=HUD表示切替 / `1`-`9`=ボード非表示 / `P`=PNG保存 / クリック=飛翔体選択 / ドラッグ=視点回転
+
+## ドキュメント
+
+- [docs/INSTALL.md](docs/INSTALL.md) — ビルドと実行（broker / agent / viewer）
+- [docs/protocol.md](docs/protocol.md) — レガシーUDP仕様 v1.1 ＋ ブローカー⇔ビューア ワイヤ v3
+- [docs/MIGRATION.md](docs/MIGRATION.md) — Packter 2.x からの移行
+- [docs/verification.md](docs/verification.md) — 受け入れ検証結果（全24項目）
+- [docs/HISTORY.md](docs/HISTORY.md) — 系譜とアセットクレジット
+- [docs/traceback-plugin.md](docs/traceback-plugin.md) — トレースバックAPI（仕様のみ）
+- [CHANGELOG.md](CHANGELOG.md) — 変更履歴
 
 ## 互換性
 
-ブローカーの互換パーサは以下をすべて受理します（寛容受信）:
+ブローカーの互換パーサは以下をすべて受理します（寛容受信）。**既存の PackterAgent 2.5
+は無改修でそのまま使えます**。
 
-- `PACKTER\n` ＋ レコード列挙（正規形バルク）
-- `PACKTER\nレコード` の組の繰り返し
-- `PACKTER レコード`（1行形式）
-- 旧 `PACTER` ヘッダ、`PACKTERBALLISTIC`、`PACKTERWITHGATEWAY`
+- `PACKTER\n` ＋ レコード列挙（正規形バルク）／組の繰り返し／`PACKTER レコード`（1行）
+- 旧 `PACTER` ヘッダ、`PACKTERBALLISTIC`、`PACKTERWITHGATEWAY`、`PACKTEARTH`(GeoIP)
+- 制御: `PACKTERMSG` / `PACKTERHTML` / `PACKTERSE` / `PACKTERSOUND` / `PACKTERVOICE` /
+  `PACKTERSKYDOMETEXTURE`
 - 座標欄: IPv4 / IPv6 / 正規化座標(0–1) / 整数(1–65536)
-
-リファクタリング全体計画は `C:\packer\PACKTER-REFACTORING-PLAN.md` を参照。
 
 ## ライセンス
 
-コード: BSD 2-Clause。アセット（スカイドーム・flag色・ボードテクスチャ）は
-旧Packterプロジェクト由来（CC BY、クレジットは docs/HISTORY.md 参照）。
+コード: BSD 2-Clause。アセット（スカイドーム・flag色・ボードテクスチャ等）は
+旧Packterプロジェクト由来（CC BY、クレジットは [docs/HISTORY.md](docs/HISTORY.md)）。

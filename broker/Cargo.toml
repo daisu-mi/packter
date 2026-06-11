@@ -1,6 +1,6 @@
 [package]
 name = "packter-broker"
-version = "3.0.0-alpha.3"
+version = "3.0.0-beta.1"
 edition = "2021"
 license = "BSD-2-Clause"
 description = "Packter broker: legacy UDP ingest, batching, WebSocket fan-out, static viewer hosting"

@@ -13,7 +13,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 
-#define PACKTER_VERSION      "3.0.0-alpha.1"
+#define PACKTER_VERSION      "3.0.0-beta.1"
 
 #define PACKTER_SNAPLEN      128
 #define PACKTER_BUFSIZ       1024

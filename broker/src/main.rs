@@ -246,7 +246,7 @@ async fn main() {
         .with_state(shared);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], cfg.http_port));
-    println!("packter-broker 3.0.0-alpha.3");
+    println!("packter-broker {}", env!("CARGO_PKG_VERSION"));
     println!("  legacy UDP ingest : 0.0.0.0:{}", cfg.udp_port);
     println!("  viewer + websocket: http://localhost:{}/  (ws: /ws)", cfg.http_port);
     println!("  serving web dir   : {}", cfg.web_dir);
