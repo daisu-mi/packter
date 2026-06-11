@@ -21,7 +21,7 @@
   ボードへ飛ぶ。N枚配置（真上から見ると三角〜六角“状”）、巻き戻し、選択、トースト、
   音声、スカイドーム差替、PNG保存
 - **tools/** — テストトラフィック生成（`sender.py`）・アセット変換スクリプト
-- **docs/** — 仕様・インストール・移行・検証・系譜
+- **docs/** — 仕様・インストール・移行・検証
 
 ## クイックスタート
 
@@ -66,12 +66,6 @@ packter-broker web --boards 4 \
 ## ドキュメント
 
 - [docs/INSTALL.md](docs/INSTALL.md) — ビルドと実行（broker / agent / viewer）
-- [docs/protocol.md](docs/protocol.md) — レガシーUDP仕様 v1.1 ＋ ブローカー⇔ビューア ワイヤ v3
-- [docs/MIGRATION.md](docs/MIGRATION.md) — Packter 2.x からの移行
-- [docs/verification.md](docs/verification.md) — 受け入れ検証結果（全24項目）
-- [docs/HISTORY.md](docs/HISTORY.md) — 系譜とアセットクレジット
-- [docs/traceback-plugin.md](docs/traceback-plugin.md) — トレースバックAPI（仕様のみ）
-- [CHANGELOG.md](CHANGELOG.md) — 変更履歴
 
 ## 互換性
 
@@ -87,4 +81,4 @@ packter-broker web --boards 4 \
 ## ライセンス
 
 コード: BSD 2-Clause。アセット（スカイドーム・flag色・ボードテクスチャ等）は
-旧Packterプロジェクト由来（CC BY、クレジットは [docs/HISTORY.md](docs/HISTORY.md)）。
+旧Packterプロジェクト由来で Creative Commons Attribution (CC BY)。
