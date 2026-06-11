@@ -215,12 +215,15 @@ void packter_pcap(packter_ctx *ctx, const char *dumpfile, const char *device,
 /* ---- snort unix socket mode (lib/snort.c) ---- */
 void packter_snort(packter_ctx *ctx, const char *sockpath);
 
-/* ---- sFlow v4 / NetFlow v9 readers (lib/sflow.c, lib/netflow.c) ---- */
+/* ---- sFlow v4 / NetFlow v9 / IPFIX(v10) readers ---- */
 #define PACKTER_SFLOW_PORT   6343
 #define PACKTER_NETFLOW_PORT 2055
+#define PACKTER_IPFIX_PORT   4739
 void packter_sflow_read(packter_ctx *ctx, const char *buf, int len);
 void packter_netflow_read(packter_ctx *ctx, pt_map *templates,
                           const char *buf, int len);
+void packter_ipfix_read(packter_ctx *ctx, pt_map *templates,
+                        const char *buf, int len);
 
 /* ---- GeoIP (optional, lib/geoip.c stub or real) ---- */
 int packter_geoip_lookup(packter_ctx *ctx, const char *host, char *out, size_t outlen);

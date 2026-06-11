@@ -20,7 +20,7 @@ endif
 LIB_SRCS := $(wildcard lib/*.c)
 LIB_OBJS := $(LIB_SRCS:.c=.o)
 
-BINS := pt_agent pt_replay pt_sflow pt_netflow pt_thmon
+BINS := pt_agent pt_replay pt_sflow pt_netflow pt_ipfix pt_thmon
 
 all: $(BINS)
 
