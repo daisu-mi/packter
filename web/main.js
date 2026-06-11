@@ -159,65 +159,102 @@ function makeLabelSprite(initial) {
   return { sprite, draw };
 }
 
-// boards are arranged evenly on a circle: board i of N sits at angle
-// 2pi*i/N, radius R, facing the centre. N=2 -> 180 deg (classic
-// sender/receiver), N=3 -> 120 deg, N=4 -> 90 deg, etc. The board count
-// comes from the broker's {"t":"layout","count":N} announcement.
-const BOARD_RADIUS = cfg.radius ?? 110;
-const BOARD_SIZE = cfg.boardSize ?? FIELD * 1.15;
-const boardFrames = [];      // index -> { origin, right, up, name }
-const boardObjects = [];     // index -> { panel, sprite } (for teardown)
+// boards are the edges of a regular N-gon in the XY plane facing the
+// camera. The receiver (board index 1, the fly destination) is the TOP
+// edge; the senders fill the remaining edges going counter-clockwise.
+// N=3 -> triangle, N=4 -> square, N=5 -> pentagon, ... Board count comes
+// from the broker's {"t":"layout","count":N} announcement.
+const GON_RADIUS = cfg.radius ?? 230;   // circumradius (vertex distance)
+const boardFrames = [];      // index -> { origin, rx, uy, name }
+const boardObjects = [];     // index -> { panel, border, sprite } (teardown)
 const boardHidden = [];      // index -> bool (viewer-side live filter)
 
 function defaultBoardName(i) {
-  if (i === 0) return 'sender';
   if (i === 1) return 'receiver';
-  return `board${i}`;
+  return `agent${i < 1 ? i + 1 : i}`;
 }
 
 function rebuildBoards(count) {
   count = Math.max(2, count | 0);
   for (const o of boardObjects) {
-    scene.remove(o.panel); scene.remove(o.sprite);
+    scene.remove(o.panel); scene.remove(o.border); scene.remove(o.sprite);
     o.panel.geometry.dispose(); o.panel.material.dispose();
+    o.border.geometry.dispose(); o.border.material.dispose();
     o.sprite.material.map.dispose(); o.sprite.material.dispose();
   }
   boardObjects.length = 0;
   boardFrames.length = 0;
   boardLabelDraw.length = 0;
 
-  for (let i = 0; i < count; i++) {
-    const theta = (2 * Math.PI * i) / count;
-    const origin = new THREE.Vector3(
-      BOARD_RADIUS * Math.sin(theta), 0, -BOARD_RADIUS * Math.cos(theta));
-    const right = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta));
-    const up = new THREE.Vector3(0, 1, 0);
+  const Rc = GON_RADIUS;                                   // circumradius
+  // edge midpoint distance (apothem). N=2 degenerates, so place the two
+  // boards as a top/bottom facing pair instead.
+  const apothem = count === 2 ? Rc * 0.6 : Rc * Math.cos(Math.PI / count);
+  const sideLen = count === 2 ? Rc * 1.5 : 2 * Rc * Math.sin(Math.PI / count) * 0.92;
+  const thickness = Rc * 0.13;
+
+  // slot order around the polygon: receiver (1) at the top edge, then the
+  // senders in ascending index order, counter-clockwise
+  const order = [1];
+  for (let k = 0; k < count; k++) if (k !== 1) order.push(k);
+
+  for (let s = 0; s < order.length; s++) {
+    const i = order[s];
+    const beta = Math.PI / 2 + (2 * Math.PI * s) / count;  // top edge first
+    const cb = Math.cos(beta), sb = Math.sin(beta);
+    const origin = new THREE.Vector3(apothem * cb, apothem * sb, 0);
+    const tangent = new THREE.Vector3(-sb, cb, 0);         // along the edge
+    const radial = new THREE.Vector3(cb, sb, 0);           // outward normal in-plane
     const name = cfg.boards?.[i]?.name ?? defaultBoardName(i);
 
+    const panelGeo = new THREE.PlaneGeometry(sideLen, thickness);
     const panel = new THREE.Mesh(
-      new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE),
+      panelGeo,
       new THREE.MeshBasicMaterial({
-        color: 0xbcd2e8, transparent: true, opacity: 0.12,
+        color: 0xf4f8fd, transparent: true, opacity: 0.34,
         side: THREE.DoubleSide, depthWrite: false,
       }),
     );
     panel.position.copy(origin);
-    panel.rotation.y = theta;
+    panel.rotation.z = beta + Math.PI / 2;                 // long axis along edge
     scene.add(panel);
+
+    const border = new THREE.LineSegments(
+      new THREE.EdgesGeometry(panelGeo),
+      new THREE.LineBasicMaterial({ color: 0x1b4a73, transparent: true, opacity: 0.95 }),
+    );
+    border.position.copy(origin);
+    border.rotation.z = beta + Math.PI / 2;
+    scene.add(border);
 
     const caption = boardLabelText[i] || cfg.boards?.[i]?.label || name;
     const { sprite, draw } = makeLabelSprite(caption);
-    sprite.position.copy(origin).addScaledVector(up, BOARD_SIZE * 0.42);
-    sprite.scale.set(BOARD_SIZE * 0.72, BOARD_SIZE * 0.18, 1);
+    // label floats just outside the edge so it never covers the packets
+    sprite.position.copy(origin).addScaledVector(radial, thickness * 0.5 + Rc * 0.1);
+    sprite.scale.set(Math.min(sideLen * 0.9, Rc * 0.95), Rc * 0.16, 1);
     scene.add(sprite);
 
     panel.visible = !boardHidden[i];
+    border.visible = !boardHidden[i];
     sprite.visible = !boardHidden[i];
-    boardObjects[i] = { panel, sprite };
+    boardObjects[i] = { panel, border, sprite };
     boardLabelDraw[i] = draw;
     boardLabelText[i] = caption;
-    boardFrames[i] = { origin, right, up, name };
+    boardFrames[i] = {
+      origin,
+      rx: tangent.multiplyScalar(sideLen),
+      uy: radial.multiplyScalar(thickness),
+      name,
+    };
   }
+
+  // straight-on front view of the polygon (matches the flat sketch),
+  // panned up a touch so the top board clears the HUD; the layout count
+  // is fixed per broker so this runs rarely
+  camera.position.set(0, Rc * 0.16, Rc * 2.55);
+  controls.target.set(0, Rc * 0.16, 0);
+  controls.maxDistance = Rc * 6;
+  controls.update();
 }
 
 // live, viewer-side board filter: digit keys 1..9 hide/show a board and
@@ -227,6 +264,7 @@ function toggleBoard(i) {
   if (i < 0 || i >= boardObjects.length) return;
   boardHidden[i] = !boardHidden[i];
   boardObjects[i].panel.visible = !boardHidden[i];
+  boardObjects[i].border.visible = !boardHidden[i];
   boardObjects[i].sprite.visible = !boardHidden[i];
 }
 rebuildBoards(cfg.boards?.length || 2);
@@ -241,8 +279,8 @@ function setBoardLabel(index, text) {
 function boardPoint(idx, nx, ny, out) {
   const f = boardFrames[idx] ?? boardFrames[0];
   out.copy(f.origin)
-    .addScaledVector(f.right, (nx - 0.5) * FIELD)
-    .addScaledVector(f.up, (ny - 0.5) * FIELD);
+    .addScaledVector(f.rx, nx - 0.5)   // along the edge (already scaled)
+    .addScaledVector(f.uy, ny - 0.5);  // across the edge thickness
   return out;
 }
 
@@ -516,7 +554,7 @@ function packetPosition(i, f, out) {
   switch (ev.kind[i]) {
     case KIND_BALLISTIC:
       out.lerpVectors(srcPt, dstPt, f);
-      out.y += Math.sin(Math.PI * f) * ARC_HEIGHT;
+      out.z += Math.sin(Math.PI * f) * ARC_HEIGHT;   // arc toward the camera
       break;
     default:
       out.lerpVectors(srcPt, dstPt, f);

@@ -12,8 +12,7 @@
     "yStart": 0.0,
     "yEnd": 1.0
   },
-  "_layout": "ボードは円周上に自動均等配置される。枚数はブローカーの --boards / --agent で決まる。boards[] は各インデックスの既定名のみ（実際の表示はエージェントの -A id が優先）。radius / boardSize は任意。",
-  "radius": 110,
+  "_layout": "ボードは円周上に自動均等配置される（半径は枚数に応じて自動拡大し重なりを防ぐ）。枚数はブローカーの --boards / --agent で決まる。boards[] は各インデックスの既定名のみ（実際の表示はエージェントの -A id が優先）。radius を指定すると自動拡大を上書き、boardSize でボードの大きさを指定（いずれも任意）。",
   "boardSize": 230,
   "boards": [
     { "name": "sender" },
