@@ -63,7 +63,7 @@ pt_agent  -v <broker> -B 50 -i eth0           # 50ms バルク送信（帯域節
 pt_sflow  -v <broker> -l 6343                 # sFlow v4 コレクタ
 pt_netflow -v <broker> -l 2055                # NetFlow v9 コレクタ
 pt_ipfix  -v <broker> -l 4739                 # IPFIX(v10) コレクタ
-pt_thmon  -v <broker> -i eth0 -S 0.5          # SYN比率しきい値監視
+pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無調整で動作)
 ```
 
 全オプションは各ツール `-h`。

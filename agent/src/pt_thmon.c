@@ -1,15 +1,30 @@
 /*
- * pt_thmon — threshold monitor. Counts SYN/FIN/RST/ICMP/UDP ratios and
- * PPS over count_max-packet windows (separated by `interval` seconds of
- * quiet) and emits PACKTERMSG / PACKTERSOUND / PACKTERVOICE /
- * PACKTERSKYDOMETEXTURE alerts assembled from packter.conf keys.
+ * pt_thmon — adaptive traffic monitor. Over count_max-packet windows it emits
+ * PACKTERMSG / PACKTERSOUND / PACKTERVOICE / PACKTERSKYDOMETEXTURE alerts
+ * (assembled from packter.conf keys) when the flag mix looks anomalous.
  *
- * Intended fixes vs 2.5: MON_OPT_SOUND_HEAD / MON_OPT_SOUND_FOOT are now
- * appended to the sound message (2.5 appended them to the voice buffer).
+ * Detection (2026-06, replacing the original fixed-ratio thresholds; mirrors
+ * the broker's thmon.rs):
+ *   * SYN floods — non-parametric CUSUM on the SYN-(FIN+RST) handshake
+ *     imbalance (Wang, Zhang & Shin, "Detecting SYN Flooding Attacks",
+ *     IEEE INFOCOM 2002). An EWMA learns the site's normal balance; CUSUM
+ *     accumulates the standardised shift and alarms at the change point.
+ *   * FIN, RST, ICMP, UDP, PPS — an EWMA control chart (Roberts 1959): alarm
+ *     when a window exceeds mean + k*sigma of its EWMA baseline. Unlike the
+ *     broker (which only sees final flags), pt_thmon reads TCP header bits, so
+ *     FIN and RST stay SEPARATE classes here.
+ *   * The -S/-F/-R/-I/-U/-P options survive as OPTIONAL absolute hard caps
+ *     (fire regardless, even during warm-up). Unset => purely adaptive.
+ *
+ * Tunables (packter.conf, all optional): TH_WARMUP (windows of baseline before
+ * adaptive alarms), TH_LAMBDA (EWMA weight), TH_EWMA_K (band sigma),
+ * TH_CUSUM_K / TH_CUSUM_H (CUSUM slack / decision interval, in sigma units).
+ * -w becomes the post-alert cooldown (seconds).
  */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include <unistd.h>
 #include <signal.h>
 #include <arpa/inet.h>
@@ -19,12 +34,27 @@
 
 #define PT_THCOUNT 500
 #define PT_INTERVAL 30
+#define PT_RATIO_FLOOR 0.02f   /* min modelled noise for ratio metrics (2%) */
+
+/* exponentially-weighted moving mean + variance (Roberts/West form) */
+struct ewma {
+    float mean, var;
+    int ready;
+};
 
 struct thmon_state {
     int count_max;
     long count_all, count_syn, count_fin, count_rst, count_icmp, count_udp;
     float rate_syn, rate_fin, rate_rst, rate_icmp, rate_udp, rate_pps;
     struct timeval start, stop;
+
+    /* adaptive detectors */
+    struct ewma e_syn, e_fin, e_rst, e_icmp, e_udp, e_pps, e_imbal;
+    float cusum_g;
+    unsigned long windows;
+    int warmup;
+    float lambda, ewma_k, cusum_k, cusum_h;
+    long cooldown_until_sec;
 };
 
 static const char *progname;
@@ -61,6 +91,51 @@ static void count_init(void)
 {
     th.count_all = th.count_syn = th.count_fin = th.count_rst = 0;
     th.count_icmp = th.count_udp = 0;
+}
+
+static float conf_float(const char *key, float def)
+{
+    const char *v = (const char *)pt_map_get(&g_config, key);
+    return (v != NULL && *v != '\0') ? (float)atof(v) : def;
+}
+
+static float ew_sd(const struct ewma *e)
+{
+    return sqrtf(e->var > 0.0f ? e->var : 0.0f);
+}
+
+/* upper control limit mean + k*sigma, with a noise floor so a near-constant
+ * baseline does not make the band hypersensitive */
+static float ew_limit(const struct ewma *e, float k, float floor)
+{
+    float sd = ew_sd(e);
+    if (sd < floor) {
+        sd = floor;
+    }
+    return e->mean + k * sd;
+}
+
+static float ew_z(const struct ewma *e, float x, float floor)
+{
+    float sd = ew_sd(e);
+    if (sd < floor) {
+        sd = floor;
+    }
+    return (x - e->mean) / sd;
+}
+
+static void ew_update(struct ewma *e, float x, float lambda)
+{
+    float dev;
+    if (!e->ready) {
+        e->mean = x;
+        e->var = 0.0f;
+        e->ready = 1;
+        return;
+    }
+    dev = x - e->mean;
+    e->mean += lambda * dev;
+    e->var = (1.0f - lambda) * (e->var + lambda * dev * dev);
 }
 
 static int generate_alert(int alert, char *mesg, char *sound, char *voice,
@@ -130,47 +205,121 @@ static void analyze(void)
     snprintf(voice, sizeof(voice), "%s", PACKTER_VOICE);
     snprintf(skydome, sizeof(skydome), "%s", PACKTER_SKYDOME);
 
+    float imbal = mon_syn - (mon_fin + mon_rst);
+    int warming;
+    int fire_syn = 0, fire_fin = 0, fire_rst = 0, fire_icmp = 0, fire_udp = 0, fire_pps = 0;
+    float thr_syn = 0, thr_fin = 0, thr_rst = 0, thr_icmp = 0, thr_udp = 0, thr_pps = 0;
+    float pps_floor;
+
+    th.windows++;
+    warming = (th.windows <= (unsigned long)th.warmup);
+
+    /* SYN: non-parametric CUSUM on the standardised imbalance, plus hard cap */
+    if (th.e_imbal.ready && !warming) {
+        th.cusum_g += ew_z(&th.e_imbal, imbal, PT_RATIO_FLOOR) - th.cusum_k;
+        if (th.cusum_g < 0.0f) {
+            th.cusum_g = 0.0f;
+        }
+        if (th.cusum_g > th.cusum_h) {
+            fire_syn = 1;
+            thr_syn = ew_limit(&th.e_syn, th.ewma_k, PT_RATIO_FLOOR) * 100;
+            th.cusum_g = 0.0f;
+        }
+    }
+    if (!fire_syn && th.rate_syn > 0 && mon_syn > th.rate_syn) {
+        fire_syn = 1;
+        thr_syn = th.rate_syn * 100;
+    }
+
+    /* FIN / RST / ICMP / UDP: EWMA control-chart bands, plus hard caps */
+    if (th.e_fin.ready && !warming && mon_fin > ew_limit(&th.e_fin, th.ewma_k, PT_RATIO_FLOOR)) {
+        fire_fin = 1; thr_fin = ew_limit(&th.e_fin, th.ewma_k, PT_RATIO_FLOOR) * 100;
+    }
+    if (!fire_fin && th.rate_fin > 0 && mon_fin > th.rate_fin) { fire_fin = 1; thr_fin = th.rate_fin * 100; }
+
+    if (th.e_rst.ready && !warming && mon_rst > ew_limit(&th.e_rst, th.ewma_k, PT_RATIO_FLOOR)) {
+        fire_rst = 1; thr_rst = ew_limit(&th.e_rst, th.ewma_k, PT_RATIO_FLOOR) * 100;
+    }
+    if (!fire_rst && th.rate_rst > 0 && mon_rst > th.rate_rst) { fire_rst = 1; thr_rst = th.rate_rst * 100; }
+
+    if (th.e_icmp.ready && !warming && mon_icmp > ew_limit(&th.e_icmp, th.ewma_k, PT_RATIO_FLOOR)) {
+        fire_icmp = 1; thr_icmp = ew_limit(&th.e_icmp, th.ewma_k, PT_RATIO_FLOOR) * 100;
+    }
+    if (!fire_icmp && th.rate_icmp > 0 && mon_icmp > th.rate_icmp) { fire_icmp = 1; thr_icmp = th.rate_icmp * 100; }
+
+    if (th.e_udp.ready && !warming && mon_udp > ew_limit(&th.e_udp, th.ewma_k, PT_RATIO_FLOOR)) {
+        fire_udp = 1; thr_udp = ew_limit(&th.e_udp, th.ewma_k, PT_RATIO_FLOOR) * 100;
+    }
+    if (!fire_udp && th.rate_udp > 0 && mon_udp > th.rate_udp) { fire_udp = 1; thr_udp = th.rate_udp * 100; }
+
+    /* PPS: EWMA band with a relative noise floor, plus hard cap */
+    pps_floor = th.e_pps.mean * 0.25f;
+    if (pps_floor < 1.0f) {
+        pps_floor = 1.0f;
+    }
+    if (th.e_pps.ready && !warming && mon_pps > ew_limit(&th.e_pps, th.ewma_k, pps_floor)) {
+        fire_pps = 1; thr_pps = ew_limit(&th.e_pps, th.ewma_k, pps_floor);
+    }
+    if (!fire_pps && th.rate_pps > 0 && mon_pps > th.rate_pps) { fire_pps = 1; thr_pps = th.rate_pps; }
+
     printf("-------------------------\n");
-    printf("Statistics of %ld packet\n", th.count_all);
-    printf("Observed: %ld.%ld - %ld.%ld\n",
-           (long)th.start.tv_sec, (long)th.start.tv_usec,
-           (long)th.stop.tv_sec, (long)th.stop.tv_usec);
-    printf("SYN : %.4f   FIN : %.4f   RST: %.4f\n", mon_syn, mon_fin, mon_rst);
-    printf("ICMP: %.4f   UDP : %.4f   PPS: %.4f\n", mon_icmp, mon_udp, mon_pps);
+    printf("Statistics of %ld packet (window %lu)\n", th.count_all, th.windows);
+    printf("SYN : %.4f (mean %.4f)   FIN : %.4f   RST: %.4f\n",
+           mon_syn, th.e_syn.mean, mon_fin, mon_rst);
+    printf("ICMP: %.4f   UDP : %.4f   PPS: %.2f   CUSUM g: %.2f/%.1f\n",
+           mon_icmp, mon_udp, mon_pps, th.cusum_g, th.cusum_h);
+    if (warming) {
+        printf("(warming up: %lu/%d windows)\n", th.windows, th.warmup);
+    }
     printf("-------------------------\n");
 
-    if (mon_syn > th.rate_syn && th.rate_syn > 0) {
+    if (fire_syn) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_SYN_PIC", "MON_SYN_MSG", "MON_SYN_SOUND", "MON_SYN_VOICE",
-                               mon_syn * 100, th.rate_syn * 100);
+                               mon_syn * 100, thr_syn);
     }
-    if (mon_fin > th.rate_fin && th.rate_fin > 0) {
+    if (fire_fin) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_FIN_PIC", "MON_FIN_MSG", "MON_FIN_SOUND", "MON_FIN_VOICE",
-                               mon_fin * 100, th.rate_fin * 100);
+                               mon_fin * 100, thr_fin);
     }
-    if (mon_rst > th.rate_rst && th.rate_rst > 0) {
+    if (fire_rst) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_RST_PIC", "MON_RST_MSG", "MON_RST_SOUND", "MON_RST_VOICE",
-                               mon_rst * 100, th.rate_rst * 100);
+                               mon_rst * 100, thr_rst);
     }
-    if (mon_icmp > th.rate_icmp && th.rate_icmp > 0) {
+    if (fire_icmp) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_ICMP_PIC", "MON_ICMP_MSG", "MON_ICMP_SOUND", "MON_ICMP_VOICE",
-                               mon_icmp * 100, th.rate_icmp * 100);
+                               mon_icmp * 100, thr_icmp);
     }
-    if (mon_udp > th.rate_udp && th.rate_udp > 0) {
+    if (fire_udp) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_UDP_PIC", "MON_UDP_MSG", "MON_UDP_SOUND", "MON_UDP_VOICE",
-                               mon_udp * 100, th.rate_udp * 100);
+                               mon_udp * 100, thr_udp);
     }
-    if (mon_pps > th.rate_pps && th.rate_pps > 0) {
+    if (fire_pps) {
         alert = generate_alert(alert, mesg, sound, voice,
                                "MON_PPS_PIC", "MON_PPS_MSG", "MON_PPS_SOUND", "MON_PPS_VOICE",
-                               mon_pps, th.rate_pps);
+                               mon_pps, thr_pps);
+    }
+
+    /* adapt baselines, freezing any metric that fired so an ongoing attack is
+     * not learned as normal */
+    if (!fire_syn) { ew_update(&th.e_syn, mon_syn, th.lambda); ew_update(&th.e_imbal, imbal, th.lambda); }
+    if (!fire_fin)  { ew_update(&th.e_fin,  mon_fin,  th.lambda); }
+    if (!fire_rst)  { ew_update(&th.e_rst,  mon_rst,  th.lambda); }
+    if (!fire_icmp) { ew_update(&th.e_icmp, mon_icmp, th.lambda); }
+    if (!fire_udp)  { ew_update(&th.e_udp,  mon_udp,  th.lambda); }
+    if (!fire_pps)  { ew_update(&th.e_pps,  mon_pps,  th.lambda); }
+
+    /* post-alert cooldown (seconds, -w): suppress repeat sends */
+    if (alert == PACKTER_TRUE && th.stop.tv_sec < th.cooldown_until_sec) {
+        return;
     }
 
     if (alert == PACKTER_TRUE) {
+        th.cooldown_until_sec = th.stop.tv_sec + g_interval;
         packter_addstring_conf(&g_config, mesg, "MON_OPT_MSG_FOOT");
         packter_send(&g_ctx, mesg);
 
@@ -245,13 +394,11 @@ static void thmon_cb(u_char *user, const struct pcap_pkthdr *h, const u_char *p)
     if (th.count_all == 0) {
         gettimeofday(&th.start, NULL);
     }
-    if (th.start.tv_sec - th.stop.tv_sec > g_interval) {
-        th.count_all++;
-        if (ether_type == PT_ETHERTYPE_IP) {
-            count_ip4(p + skiplen, h->caplen - skiplen);
-        }
-        /* IPv6: counted in PPS only, as in 2.5 (thmon_ip6 only counted) */
+    th.count_all++;
+    if (ether_type == PT_ETHERTYPE_IP) {
+        count_ip4(p + skiplen, h->caplen - skiplen);
     }
+    /* IPv6: counted in PPS only, as in 2.5 (thmon_ip6 only counted) */
     if (th.count_all >= th.count_max) {
         analyze();
         count_init();
@@ -329,10 +476,16 @@ int main(int argc, char *argv[])
     if (packter_config_parse(&g_config, g_configfile) < 0) {
         usage();
     }
-    if (th.rate_syn < 0 && th.rate_fin < 0 && th.rate_rst < 0 &&
-        th.rate_udp < 0 && th.rate_icmp < 0 && th.rate_pps < 0) {
-        printf("*** No threshold is given : %s will not alert to viewer. ***\n", progname);
-    }
+    /* adaptive-detector tunables (packter.conf, optional — sane defaults) */
+    th.warmup  = (int)conf_float("TH_WARMUP", 8);
+    th.lambda  = conf_float("TH_LAMBDA", 0.3f);
+    th.ewma_k  = conf_float("TH_EWMA_K", 3.0f);
+    th.cusum_k = conf_float("TH_CUSUM_K", 0.5f);
+    th.cusum_h = conf_float("TH_CUSUM_H", 5.0f);
+    printf("thmon: adaptive detection active (CUSUM on SYN/FIN-RST imbalance + EWMA bands)%s\n",
+           (th.rate_syn > 0 || th.rate_fin > 0 || th.rate_rst > 0 ||
+            th.rate_icmp > 0 || th.rate_udp > 0 || th.rate_pps > 0)
+               ? ", plus -S/-F/-R/-I/-U/-P hard caps" : "");
     if (packter_connect(&g_ctx, ip, port) < 0) {
         exit(EXIT_FAILURE);
     }
