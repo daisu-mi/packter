@@ -2,7 +2,7 @@
 
 インターネットトラフィック／サイバー攻撃の 3D 可視化ツール **PACKTER** の現代化版
 （2008年初版の後継）。エージェントが集めたトラフィックを、ブラウザ上で飛翔体として
-リアルタイムに可視化します。系譜は NICTER の「CUBE」に連なります（[docs/HISTORY.md](docs/HISTORY.md)）。
+リアルタイムに可視化します。
 
 ```
 旧 PackterAgent ──UDP 11300──▶ packter-broker(Rust) ──WebSocket──▶ Web ビューア(Three.js)
