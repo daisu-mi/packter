@@ -16,12 +16,13 @@
   直近5分のリングバッファ（巻き戻し・途中参加バックフィル）、JSONL録画、
   しきい値監視（thmon）、Suricata EVE取り込み、エージェント認証も担う単一バイナリ
 - **agent/** — C言語のエージェント群（`pt_agent` / `pt_sflow` / `pt_netflow` /
-  `pt_thmon` / `pt_replay`）。PackterAgent 2.5 の全面リライト。依存は libpcap のみ
+  `pt_ipfix` / `pt_thmon` / `pt_replay`）。PackterAgent 2.5 の全面リライト。依存は
+  libpcap のみ。sFlow/NetFlow/IPFIX コレクタは IPv4・IPv6 両対応（デュアルスタック受信）
 - **web/** — Webビューア（Three.js）。flag色のボールが Agent ボードから Receiver
   ボードへ飛ぶ。N枚配置（真上から見ると三角〜六角“状”）、巻き戻し、選択、トースト、
   音声、スカイドーム差替、PNG保存
 - **tools/** — テストトラフィック生成（`sender.py`）・アセット変換スクリプト
-- **docs/** — 仕様・インストール・移行・検証
+- **docs/** — インストール手順（INSTALL.md）と配置図（img/）
 
 ## クイックスタート
 

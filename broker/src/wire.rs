@@ -1,4 +1,6 @@
-//! Broker -> viewer wire encoding. See docs/protocol.md part 2.
+//! Broker -> viewer wire encoding (v3 binary fly frames + JSON control
+//! frames). The encoders and their round-trip unit tests below define the
+//! format; the viewer's decoder in web/main.js is the consumer.
 
 use crate::parse::{Control, FlyEvent};
 

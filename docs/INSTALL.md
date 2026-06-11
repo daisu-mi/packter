@@ -41,7 +41,7 @@ cargo build --release
 
 ```sh
 cd agent
-make                 # pt_agent pt_sflow pt_netflow pt_thmon pt_replay
+make                 # pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
 make test            # ユニット + ゴールデン（独立Python実装と突き合わせ）
 make SANITIZE=1      # ASan/UBSan ビルド
 make GEOIP=1         # libGeoIP で -G(PACKTEARTH) を有効化（任意）

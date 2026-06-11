@@ -2,8 +2,8 @@
  * PACKTER Agent 3.0 - common definitions
  * Copyright (c) 2008-26 Project PACKTER. BSD 2-Clause.
  *
- * Successor of PackterAgent 2.5. Wire format is unchanged; see
- * docs/protocol.md in the repository root.
+ * Successor of PackterAgent 2.5. Wire format is unchanged (legacy PACKTER
+ * protocol; the broker's compatibility parser documents the accepted forms).
  */
 #ifndef PACKTER_H
 #define PACKTER_H

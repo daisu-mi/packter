@@ -1,5 +1,6 @@
 //! Lenient parser for the legacy Packter UDP text protocol.
-//! See docs/protocol.md part 1.
+//! Accepted forms are summarised in README.md ("互換性"); the unit tests
+//! below are the authoritative specification.
 
 pub const KIND_LAY: u8 = 0;
 pub const KIND_BALLISTIC: u8 = 1;
