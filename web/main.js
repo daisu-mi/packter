@@ -125,29 +125,77 @@ function setSkydome(url) {
 }
 setSkydome(cfg.skydome);
 
-function addBoardMesh(texture, pos, rotY, size) {
-  texLoader.load(texture, tex => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const board = new THREE.Mesh(
-      new THREE.PlaneGeometry(size, size),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
-    );
-    board.position.copy(pos);
-    board.rotation.y = rotY;
-    scene.add(board);
-  });
+// A board is a translucent panel plus a camera-facing label sprite. The
+// caption text is NOT baked into a texture: it starts from config
+// (label > name) and is replaced live by the agent's -A id, which the
+// broker pushes as {"t":"board","index":N,"label":"..."}.
+const boardLabelDraw = [];   // index -> (text) => void
+const boardLabelText = [];   // index -> current caption
+
+function makeLabelSprite(initial) {
+  const cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 128;
+  const ctx = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  const draw = label => {
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.fillStyle = 'rgba(10,20,35,0.55)';
+    ctx.fillRect(0, 0, 512, 128);
+    ctx.fillStyle = '#cfe8ff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    let fs = 80;
+    ctx.font = `500 ${fs}px sans-serif`;
+    while (fs > 20 && ctx.measureText(label).width > 484) {
+      fs -= 4; ctx.font = `500 ${fs}px sans-serif`;
+    }
+    ctx.fillText(label, 256, 64);
+    tex.needsUpdate = true;
+  };
+  draw(initial);
+  return { sprite, draw };
 }
 
 // board local frames: a normalized record coordinate (0..1, 0..1) maps to
 //   origin + right*(x-0.5)*FIELD + up*(y-0.5)*FIELD
-const boardFrames = cfg.boards.map(b => {
+const boardFrames = cfg.boards.map((b, i) => {
   const rotY = b.rotationY ?? 0;
   const origin = new THREE.Vector3(...(b.position ?? [0, 0, 0]));
   const right = new THREE.Vector3(Math.cos(rotY), 0, -Math.sin(rotY));
   const up = new THREE.Vector3(0, 1, 0);
-  addBoardMesh(b.texture, origin, rotY, b.size ?? FIELD * 1.15);
+  const size = b.size ?? FIELD * 1.15;
+
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(size, size),
+    new THREE.MeshBasicMaterial({
+      color: 0xbcd2e8, transparent: true, opacity: 0.12,
+      side: THREE.DoubleSide, depthWrite: false,
+    }),
+  );
+  panel.position.copy(origin);
+  panel.rotation.y = rotY;
+  scene.add(panel);
+
+  const caption = b.label || b.name || `board${i}`;
+  const { sprite, draw } = makeLabelSprite(caption);
+  sprite.position.copy(origin).addScaledVector(up, size * 0.42);
+  sprite.scale.set(size * 0.72, size * 0.18, 1);
+  scene.add(sprite);
+  boardLabelDraw[i] = draw;
+  boardLabelText[i] = caption;
+
   return { origin, right, up, name: b.name ?? '' };
 });
+
+function setBoardLabel(index, text) {
+  if (index < 0 || index >= boardLabelDraw.length) return;
+  if (boardLabelText[index] === text) return;
+  boardLabelText[index] = text;
+  boardLabelDraw[index](text);
+}
 
 function boardPoint(idx, nx, ny, out) {
   const f = boardFrames[idx] ?? boardFrames[0];
@@ -366,6 +414,7 @@ function handleControl(c) {
     case 'sound': ensureAudio(); playBGM(c.time, c.file); break;
     case 'voice': speak(c.text); break;
     case 'skydome': setSkydome(`assets/legacy/${c.file}`); break;
+    case 'board': setBoardLabel(c.index, c.label); break;
   }
 }
 
@@ -442,7 +491,7 @@ canvas.addEventListener('click', e => {
   if (hits.length > 0 && hits[0].instanceId !== undefined && visMap[hits[0].instanceId] !== undefined) {
     const sel = visMap[hits[0].instanceId];
     const kindName = ['lay', 'ballistic'][ev.kind[sel]] || 'lay';
-    const bName = idx => boardFrames[idx]?.name || `board${idx}`;
+    const bName = idx => boardLabelText[idx] || boardFrames[idx]?.name || `board${idx}`;
     selinfo.style.display = 'block';
     selinfo.textContent =
       `flag:${ev.flag[sel]} (${kindName}) ${bName(ev.sb[sel])}→${bName(ev.db[sel])}\n` +
@@ -455,6 +504,7 @@ canvas.addEventListener('click', e => {
 // debug/testing hook (read-only introspection for automated checks)
 window.__packter = {
   packets, camera, raycaster, boardFrames,
+  boardLabels: () => boardLabelText.slice(),
   stats: () => ({ buffered: ev.t.length, visible: packets.count, mode }),
   boardCounts: () => {
     const c = {};

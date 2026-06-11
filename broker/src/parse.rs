@@ -37,6 +37,9 @@ pub enum Control {
 pub enum Parsed {
     Fly(FlyEvent),
     Ctrl(Control),
+    /// board caption update derived from an agent's -A id (not produced by
+    /// parse_datagram; injected by the ingest layer on change)
+    BoardLabel { index: u8, label: String },
 }
 
 /// Fly headers start record mode; control headers consume the rest of

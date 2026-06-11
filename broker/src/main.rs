@@ -34,11 +34,22 @@ struct Shared {
     ring: Mutex<std::collections::VecDeque<Stored>>,
     frames: broadcast::Sender<Arc<Message>>,
     record: Option<Mutex<std::fs::File>>,
+    /// latest caption per board index (agent -A id), replayed to new clients
+    board_labels: Mutex<std::collections::HashMap<u8, String>>,
+}
+
+fn board_label_json(index: u8, label: &str) -> String {
+    format!(r#"{{"t":"board","index":{index},"label":"{}"}}"#, json_escape(label))
 }
 
 impl Shared {
     fn now_ms(&self) -> u64 {
         self.epoch.elapsed().as_millis() as u64
+    }
+
+    fn emit_board_label(&self, index: u8, label: &str) {
+        self.board_labels.lock().unwrap().insert(index, label.to_string());
+        let _ = self.frames.send(Arc::new(Message::Text(board_label_json(index, label))));
     }
 
     fn emit_control(&self, c: &Control) {
@@ -199,6 +210,7 @@ async fn main() {
         ring: Mutex::new(std::collections::VecDeque::new()),
         frames: frame_tx,
         record,
+        board_labels: Mutex::new(std::collections::HashMap::new()),
     });
 
     tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents));
@@ -247,6 +259,17 @@ async fn ws_handler(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> 
 async fn ws_client(mut socket: WebSocket, shared: Arc<Shared>) {
     // subscribe before snapshotting so no live frame is missed
     let mut rx = shared.frames.subscribe();
+
+    // replay current board captions so a late joiner sees agent labels
+    let label_frames: Vec<String> = {
+        let labels = shared.board_labels.lock().unwrap();
+        labels.iter().map(|(idx, label)| board_label_json(*idx, label)).collect()
+    };
+    for json in label_frames {
+        if socket.send(Message::Text(json)).await.is_err() {
+            return;
+        }
+    }
 
     // backfill the broker-side rewind window for late joiners
     let backfill = {
@@ -343,6 +366,9 @@ async fn batcher(mut rx: mpsc::Receiver<Parsed>, shared: Arc<Shared>, mut thmon:
                     Some(Parsed::Ctrl(c)) => {
                         shared.emit_control(&c);
                     }
+                    Some(Parsed::BoardLabel { index, label }) => {
+                        shared.emit_board_label(index, &label);
+                    }
                     None => break,
                 }
             }
@@ -366,6 +392,8 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
         None
     };
     let mut buf = vec![0u8; 65536];
+    // last caption pushed per board, to emit a board-label frame only on change
+    let mut last_labels: std::collections::HashMap<u8, String> = std::collections::HashMap::new();
     loop {
         let Ok((len, peer)) = sock.recv_from(&mut buf).await else { continue };
         let Ok(text) = std::str::from_utf8(&buf[..len]) else { continue };
@@ -382,6 +410,15 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
         }
         let board = peeled.board.unwrap_or_else(|| board_for(peer.ip(), &boards));
         let ctrl_ok = !agents.controls_need_auth() || peeled.authed;
+
+        // an agent's -A id becomes its board caption (deduped on change)
+        if let Some(id) = peeled.agent_id.as_ref() {
+            if last_labels.get(&board).map(|s| s != id).unwrap_or(true) {
+                last_labels.insert(board, id.clone());
+                let _ = tx.try_send(Parsed::BoardLabel { index: board, label: id.clone() });
+            }
+        }
+
         for item in parse_datagram(peeled.rest) {
             match item {
                 Parsed::Fly(mut ev) => {
@@ -395,6 +432,7 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
                         eprintln!("auth: control command from {peer} dropped (unauthenticated)");
                     }
                 }
+                Parsed::BoardLabel { .. } => {} // never produced by parse_datagram
             }
         }
     }

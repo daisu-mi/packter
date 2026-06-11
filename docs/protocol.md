@@ -107,7 +107,14 @@ PACKTERAGENT <id>,<unix時刻>,<HMAC64hex>   認証つき（Agent -A <id> -K <ps
 {"t":"sound","time":"60","file":"bgm01.wav"}
 {"t":"voice","text":"..."}
 {"t":"skydome","file":"texture1.bmp"}
+{"t":"board","index":0,"label":"border-router"}
 ```
+
+`board` はボードのキャプション更新。エージェントが `-A <id>` を付けると、
+ブローカーはそのエージェントが割り当たるボードへ `id` をキャプションとして
+配信する（変化時のみ。新規接続クライアントには現在値をリプレイ）。ビューアは
+ボード面に焼き込まれた文字ではなく、このラベルをスプライトで表示する。
+内部のボードインデックス（0=sender, 1=receiver…）は不変で、表示文字だけが変わる。
 
 ビューアの扱い: msg/html→sandbox iframe（スクリプト既定無効）のトースト、
 se/sound→WebAudio、voice→Web Speech API、skydome→背景テクスチャ差替。
