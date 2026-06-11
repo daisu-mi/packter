@@ -5,12 +5,21 @@
 CC      ?= cc
 CFLAGS  ?= -O2 -g
 CFLAGS  += -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Iinclude -Ilib
-LDLIBS   = -lpcap
+
+# Only the live-capture tools (pt_agent, pt_thmon) need libpcap. The
+# sFlow/NetFlow/IPFIX collectors and pt_replay are pure UDP/file readers, so
+# they link nothing extra and run on hosts WITHOUT libpcap installed. We scope
+# -lpcap to the tools that use it rather than relying on the linker's
+# --as-needed default, which is not universal across toolchains.
+LDLIBS   =
+PCAP_LIBS = -lpcap
 
 ifeq ($(GEOIP),1)
-CFLAGS  += -DPACKTER_HAVE_GEOIP
-LDLIBS  += -lGeoIP
+CFLAGS    += -DPACKTER_HAVE_GEOIP
+PCAP_LIBS += -lGeoIP
 endif
+
+pt_agent pt_thmon tests/test_unit: LDLIBS = $(PCAP_LIBS)
 
 ifeq ($(SANITIZE),1)
 CFLAGS  += -fsanitize=address,undefined -fno-omit-frame-pointer

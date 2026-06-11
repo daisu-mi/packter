@@ -39,6 +39,12 @@ cargo build --release
 
 要件: C99 コンパイラ ＋ libpcap 開発ヘッダ。glib/OpenSSL は不要（MD5/SHA-256 内蔵）。
 
+> **実行時の libpcap 依存**: ライブキャプチャする `pt_agent` と `pt_thmon` のみ
+> libpcap（`libpcap.so` / Linux なら `libpcap0.8`）を必要とする。`pt_sflow` /
+> `pt_netflow` / `pt_ipfix` / `pt_replay` は純粋な UDP・ファイル処理で、libpcap を
+> リンクしない＝**libpcap 未導入のホストでもそのまま動く**。ブローカー（Rust 単一
+> exe）は libpcap に一切依存しない。
+
 ```sh
 cd agent
 make                 # pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
