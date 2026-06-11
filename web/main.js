@@ -90,7 +90,7 @@ const revY = v => AX.y1 !== AX.y0 ? Math.min(1, Math.max(0, (v - AX.y0) / (AX.y1
 
 // ---- scene -------------------------------------------------------------
 const canvas = document.getElementById('view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 4000);
@@ -405,6 +405,13 @@ window.addEventListener('keydown', e => {
     const n = Number(e.code.slice(5));
     if (n >= 1) toggleBoard(n - 1);
   }
+  if (e.code === 'KeyP') {              // save a PNG screenshot
+    renderer.render(scene, camera);
+    const a = document.createElement('a');
+    a.href = renderer.domElement.toDataURL('image/png');
+    a.download = `packter-${Date.now()}.png`;
+    a.click();
+  }
 });
 
 // ---- audio (PACKTERSE / PACKTERSOUND) ------------------------------------
@@ -590,7 +597,8 @@ canvas.addEventListener('click', e => {
 
 // debug/testing hook (read-only introspection for automated checks)
 window.__packter = {
-  packets, camera, raycaster, boardFrames,
+  packets, camera, raycaster, boardFrames, renderer, scene,
+  snapshot: () => { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); },
   boardLabels: () => boardLabelText.slice(),
   boardHidden: () => boardHidden.slice(),
   toggleBoard,
@@ -664,7 +672,7 @@ function frame() {
       `PACKTER 3.0 alpha — ${wsState}<br>` +
       `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / ${REWIND_MS / 1000}s)<br>` +
       `flags:${flagStatsHtml()}<br>` +
-      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide board | click=select`;
+      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide P=png | click=select`;
     if (mode === 'paused') {
       const start = ev.t.length ? Math.max(ev.t[0], now - REWIND_MS) : now - REWIND_MS;
       seek.value = Math.round(1000 * (pausedAt - start) / Math.max(1, now - start));
