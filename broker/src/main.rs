@@ -36,6 +36,8 @@ struct Shared {
     record: Option<Mutex<std::fs::File>>,
     /// latest caption per board index (agent -A id), replayed to new clients
     board_labels: Mutex<std::collections::HashMap<u8, String>>,
+    /// number of boards the viewer should arrange on its circle
+    board_count: u8,
 }
 
 fn board_label_json(index: u8, label: &str) -> String {
@@ -73,6 +75,7 @@ struct Config {
     eve_board: u8,
     boards: Vec<BoardRule>,
     agents: AgentDirectory,
+    board_count: Option<u8>,
 }
 
 /// N面配置: map a datagram source address to a viewer board index.
@@ -133,6 +136,7 @@ fn parse_args() -> Config {
         eve_board: 0,
         boards: Vec::new(),
         agents: AgentDirectory::default(),
+        board_count: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -166,11 +170,15 @@ fn parse_args() -> Config {
                 cfg.agents.add_key(id.trim(), key.as_bytes());
             }
             "--require-auth" => cfg.agents.require_auth = true,
+            "--boards" => {
+                cfg.board_count = Some(args.next().and_then(|v| v.parse().ok()).expect("--boards N"));
+            }
             "--help" | "-h" => {
                 println!("usage: packter-broker [WEB_DIR] [--udp 11300] [--http 11380]");
                 println!("       [--forward IP:PORT] [--record FILE] [--thmon packter.conf]");
                 println!("       [--eve eve.json] [--eve-board N] [--board <ip|cidr>=<index>]...");
                 println!("       [--agent <id>=<board>]... [--agent-key <id>=<pskfile>]... [--require-auth]");
+                println!("       [--boards N]  (viewer arranges N boards evenly on a circle)");
                 std::process::exit(0);
             }
             other => cfg.web_dir = other.to_string(),
@@ -184,6 +192,12 @@ async fn main() {
     let cfg = parse_args();
     let auth_keys = cfg.agents.has_keys();
     let auth_required = cfg.agents.require_auth;
+    // board count: explicit --boards, else derived from the highest board
+    // index referenced by --agent / --board rules (+1), at least 2
+    let rules_max = cfg.boards.iter().map(|r| r.board).max().unwrap_or(0)
+        .max(cfg.agents.max_board())
+        .max(cfg.eve_board);
+    let board_count = cfg.board_count.unwrap_or((rules_max + 1).max(2));
     let (frame_tx, _) = broadcast::channel::<Arc<Message>>(512);
     let (item_tx, item_rx) = mpsc::channel::<Parsed>(65536);
 
@@ -211,6 +225,7 @@ async fn main() {
         frames: frame_tx,
         record,
         board_labels: Mutex::new(std::collections::HashMap::new()),
+        board_count,
     });
 
     tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents));
@@ -248,6 +263,7 @@ async fn main() {
         println!("  agent auth        : keys={} require-auth={} (controls gated)",
                  auth_keys, auth_required);
     }
+    println!("  boards            : {} (viewer arranges them on a circle)", board_count);
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind http");
     axum::serve(listener, app).await.expect("serve http");
 }
@@ -259,6 +275,12 @@ async fn ws_handler(ws: WebSocketUpgrade, State(shared): State<Arc<Shared>>) -> 
 async fn ws_client(mut socket: WebSocket, shared: Arc<Shared>) {
     // subscribe before snapshotting so no live frame is missed
     let mut rx = shared.frames.subscribe();
+
+    // tell the viewer how many boards to arrange on its circle
+    if socket.send(Message::Text(format!(r#"{{"t":"layout","count":{}}}"#, shared.board_count)))
+        .await.is_err() {
+        return;
+    }
 
     // replay current board captions so a late joiner sees agent labels
     let label_frames: Vec<String> = {

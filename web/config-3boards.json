@@ -1,8 +1,0 @@
-{
-  "_comment": "3面配置の例: pcapエージェント(board0)とsFlowエージェント(board2)のSenderを分け、Receiverを共有する。ブローカー側は --board <sflow送信元IP>=2 で振り分ける。?config=config-3boards.json で読み込み。",
-  "boards": [
-    { "name": "pcap-sender",  "texture": "assets/compiled/packter_sender.png",   "position": [-130, 0, -75], "rotationY": 1.0472,  "size": 180 },
-    { "name": "receiver",     "texture": "assets/compiled/packter_receiver.png", "position": [0, 0, 150],    "rotationY": 3.14159, "size": 180 },
-    { "name": "sflow-sender", "texture": "assets/compiled/packter_sender.png",   "position": [130, 0, -75],  "rotationY": -1.0472, "size": 180 }
-  ]
-}

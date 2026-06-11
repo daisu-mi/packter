@@ -51,6 +51,11 @@ impl AgentDirectory {
         !self.keys.is_empty()
     }
 
+    /// highest board index referenced by --agent rules (0 if none)
+    pub fn max_board(&self) -> u8 {
+        self.boards.values().copied().max().unwrap_or(0)
+    }
+
     /// Controls are open only when no auth is configured at all.
     pub fn controls_need_auth(&self) -> bool {
         self.has_keys() || self.require_auth

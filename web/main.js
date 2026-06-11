@@ -159,36 +159,64 @@ function makeLabelSprite(initial) {
   return { sprite, draw };
 }
 
-// board local frames: a normalized record coordinate (0..1, 0..1) maps to
-//   origin + right*(x-0.5)*FIELD + up*(y-0.5)*FIELD
-const boardFrames = cfg.boards.map((b, i) => {
-  const rotY = b.rotationY ?? 0;
-  const origin = new THREE.Vector3(...(b.position ?? [0, 0, 0]));
-  const right = new THREE.Vector3(Math.cos(rotY), 0, -Math.sin(rotY));
-  const up = new THREE.Vector3(0, 1, 0);
-  const size = b.size ?? FIELD * 1.15;
+// boards are arranged evenly on a circle: board i of N sits at angle
+// 2pi*i/N, radius R, facing the centre. N=2 -> 180 deg (classic
+// sender/receiver), N=3 -> 120 deg, N=4 -> 90 deg, etc. The board count
+// comes from the broker's {"t":"layout","count":N} announcement.
+const BOARD_RADIUS = cfg.radius ?? 110;
+const BOARD_SIZE = cfg.boardSize ?? FIELD * 1.15;
+const boardFrames = [];      // index -> { origin, right, up, name }
+const boardObjects = [];     // index -> { panel, sprite } (for teardown)
 
-  const panel = new THREE.Mesh(
-    new THREE.PlaneGeometry(size, size),
-    new THREE.MeshBasicMaterial({
-      color: 0xbcd2e8, transparent: true, opacity: 0.12,
-      side: THREE.DoubleSide, depthWrite: false,
-    }),
-  );
-  panel.position.copy(origin);
-  panel.rotation.y = rotY;
-  scene.add(panel);
+function defaultBoardName(i) {
+  if (i === 0) return 'sender';
+  if (i === 1) return 'receiver';
+  return `board${i}`;
+}
 
-  const caption = b.label || b.name || `board${i}`;
-  const { sprite, draw } = makeLabelSprite(caption);
-  sprite.position.copy(origin).addScaledVector(up, size * 0.42);
-  sprite.scale.set(size * 0.72, size * 0.18, 1);
-  scene.add(sprite);
-  boardLabelDraw[i] = draw;
-  boardLabelText[i] = caption;
+function rebuildBoards(count) {
+  count = Math.max(2, count | 0);
+  for (const o of boardObjects) {
+    scene.remove(o.panel); scene.remove(o.sprite);
+    o.panel.geometry.dispose(); o.panel.material.dispose();
+    o.sprite.material.map.dispose(); o.sprite.material.dispose();
+  }
+  boardObjects.length = 0;
+  boardFrames.length = 0;
+  boardLabelDraw.length = 0;
 
-  return { origin, right, up, name: b.name ?? '' };
-});
+  for (let i = 0; i < count; i++) {
+    const theta = (2 * Math.PI * i) / count;
+    const origin = new THREE.Vector3(
+      BOARD_RADIUS * Math.sin(theta), 0, -BOARD_RADIUS * Math.cos(theta));
+    const right = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta));
+    const up = new THREE.Vector3(0, 1, 0);
+    const name = cfg.boards?.[i]?.name ?? defaultBoardName(i);
+
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(BOARD_SIZE, BOARD_SIZE),
+      new THREE.MeshBasicMaterial({
+        color: 0xbcd2e8, transparent: true, opacity: 0.12,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    panel.position.copy(origin);
+    panel.rotation.y = theta;
+    scene.add(panel);
+
+    const caption = boardLabelText[i] || cfg.boards?.[i]?.label || name;
+    const { sprite, draw } = makeLabelSprite(caption);
+    sprite.position.copy(origin).addScaledVector(up, BOARD_SIZE * 0.42);
+    sprite.scale.set(BOARD_SIZE * 0.72, BOARD_SIZE * 0.18, 1);
+    scene.add(sprite);
+
+    boardObjects[i] = { panel, sprite };
+    boardLabelDraw[i] = draw;
+    boardLabelText[i] = caption;
+    boardFrames[i] = { origin, right, up, name };
+  }
+}
+rebuildBoards(cfg.boards?.length || 2);
 
 function setBoardLabel(index, text) {
   if (index < 0 || index >= boardLabelDraw.length) return;
@@ -415,6 +443,7 @@ function handleControl(c) {
     case 'voice': speak(c.text); break;
     case 'skydome': setSkydome(`assets/legacy/${c.file}`); break;
     case 'board': setBoardLabel(c.index, c.label); break;
+    case 'layout': if (c.count !== boardFrames.length) rebuildBoards(c.count); break;
   }
 }
 
