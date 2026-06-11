@@ -60,6 +60,14 @@ void packter_sflow_read(packter_ctx *ctx, const char *buf, int len)
                ntohl(header->seq), ntohl(header->sysuptime),
                ntohl(header->numsamples));
     }
+    /* only sFlow v4 is parsed here; v5/other are ignored (broker handles v5) */
+    if (ntohl(header->version) != 4) {
+        if (ctx->debug == PACKTER_TRUE) {
+            printf("sflow: ignoring datagram version %d (only v4 supported)\n",
+                   ntohl(header->version));
+        }
+        return;
+    }
     num = (int)ntohl(header->numsamples);
     off += (int)sizeof(struct sflow_v4_header);
 
@@ -77,7 +85,8 @@ void packter_sflow_read(packter_ctx *ctx, const char *buf, int len)
         padding = (samplelen % 4 > 0) ? 4 - (samplelen % 4) : 0;
         off += (int)sizeof(struct sflow_sample);
 
-        if (samplelen < 0 || off + samplelen > len) {
+        /* compare without overflow: off <= len here, so len - off >= 0 */
+        if (samplelen < 0 || samplelen > len - off) {
             break;
         }
 

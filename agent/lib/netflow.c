@@ -150,14 +150,25 @@ static void flow_set(packter_ctx *ctx, pt_map *templates,
         return;
     }
 
+    /* a template field is only safe to read if its offset plus the bytes we
+     * actually read stay inside the record (a malicious template can declare
+     * a field shorter than the natural type size) */
+#define FLD_OK(o, sz) ((o) != NF9_ABSENT && (o) >= 0 && (o) + (sz) <= np->record_len)
+
     /* 2.5 decoded only the first record per set; we walk all of them */
     while (off + np->record_len <= setlen) {
         const char *rec = buf + off;
         uint16_t srcport = 0, dstport = 0;
         uint8_t proto = 0, tcp_flags = 0;
+        int ipsz = np->isv6 ? 16 : 4;
         int flag;
 
         off += np->record_len;
+
+        if (!FLD_OK(np->l3_src, ipsz) || !FLD_OK(np->l3_dst, ipsz) ||
+            !FLD_OK(np->proto, 1)) {
+            continue;
+        }
 
         if (np->isv6) {
             if (inet_ntop(AF_INET6, rec + np->l3_src, srcip, sizeof(srcip)) == NULL ||
@@ -176,13 +187,13 @@ static void flow_set(packter_ctx *ctx, pt_map *templates,
 
         switch (proto) {
         case 6: /* TCP */
-            if (np->l4_src == NF9_ABSENT || np->l4_dst == NF9_ABSENT) {
+            if (!FLD_OK(np->l4_src, 2) || !FLD_OK(np->l4_dst, 2)) {
                 continue;
             }
             memcpy(&srcport, rec + np->l4_src, 2);
             memcpy(&dstport, rec + np->l4_dst, 2);
             flag = np->isv6 ? PACKTER_TCP_ACK6 : PACKTER_TCP_ACK;
-            if (np->tcp_flags != NF9_ABSENT) {
+            if (FLD_OK(np->tcp_flags, 1)) {
                 memcpy(&tcp_flags, rec + np->tcp_flags, 1);
                 flag = packter_tcp_flag_adjust(flag, tcp_flags);
             }
@@ -191,7 +202,7 @@ static void flow_set(packter_ctx *ctx, pt_map *templates,
             break;
 
         case 17: /* UDP */
-            if (np->l4_src == NF9_ABSENT || np->l4_dst == NF9_ABSENT) {
+            if (!FLD_OK(np->l4_src, 2) || !FLD_OK(np->l4_dst, 2)) {
                 continue;
             }
             memcpy(&srcport, rec + np->l4_src, 2);
@@ -203,7 +214,7 @@ static void flow_set(packter_ctx *ctx, pt_map *templates,
 
         case 1:  /* ICMP */
         case 58: /* ICMPv6 */
-            if (np->icmp == NF9_ABSENT) {
+            if (!FLD_OK(np->icmp, 2)) {
                 continue;
             }
             memcpy(&srcport, rec + np->icmp, 2);
@@ -230,6 +241,7 @@ static void flow_set(packter_ctx *ctx, pt_map *templates,
             packter_send_se(ctx, flag);
         }
     }
+#undef FLD_OK
 }
 
 void packter_netflow_read(packter_ctx *ctx, pt_map *templates,
@@ -242,6 +254,14 @@ void packter_netflow_read(packter_ctx *ctx, pt_map *templates,
         return;
     }
     nh = (const struct nf9_header *)buf;
+    /* only NetFlow v9 is parsed here; v5/IPFIX(v10) are ignored (broker handles them) */
+    if (ntohs(nh->version) != 9) {
+        if (ctx->debug == PACKTER_TRUE) {
+            printf("netflow: ignoring datagram version %d (only v9 supported)\n",
+                   ntohs(nh->version));
+        }
+        return;
+    }
     srcid = ntohl(nh->srcid);
     buf += sizeof(struct nf9_header);
     len -= (int)sizeof(struct nf9_header);
