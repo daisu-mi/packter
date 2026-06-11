@@ -28,6 +28,7 @@ const BATCH_MS: u64 = 33;
 const REWIND_MS: u64 = 5 * 60 * 1000; // broker-side ring: 5 minutes (spec 2026-06-10)
 const RING_CAP: usize = 2_000_000;
 const BACKFILL_CHUNK: usize = 4096;
+const MAX_BOARDS: u8 = 16;
 
 struct Shared {
     epoch: Instant,
@@ -76,6 +77,7 @@ struct Config {
     boards: Vec<BoardRule>,
     agents: AgentDirectory,
     board_count: Option<u8>,
+    strict: bool,
 }
 
 /// N面配置: map a datagram source address to a viewer board index.
@@ -108,20 +110,21 @@ fn parse_board_rule(s: &str) -> Option<BoardRule> {
     Some(BoardRule { matcher: BoardMatch::Exact(ip), board })
 }
 
-fn board_for(peer: std::net::IpAddr, rules: &[BoardRule]) -> u8 {
+/// board index for a source ip, or None if no --board rule matches
+fn board_for(peer: std::net::IpAddr, rules: &[BoardRule]) -> Option<u8> {
     for r in rules {
         match (&r.matcher, peer) {
-            (BoardMatch::Exact(ip), p) if *ip == p => return r.board,
+            (BoardMatch::Exact(ip), p) if *ip == p => return Some(r.board),
             (BoardMatch::Cidr4(net, plen), std::net::IpAddr::V4(p)) => {
                 let mask = if *plen == 0 { 0 } else { u32::MAX << (32 - *plen) };
                 if (u32::from(p) & mask) == (*net & mask) {
-                    return r.board;
+                    return Some(r.board);
                 }
             }
             _ => {}
         }
     }
-    0
+    None
 }
 
 fn parse_args() -> Config {
@@ -137,6 +140,7 @@ fn parse_args() -> Config {
         boards: Vec::new(),
         agents: AgentDirectory::default(),
         board_count: None,
+        strict: false,
     };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -170,6 +174,7 @@ fn parse_args() -> Config {
                 cfg.agents.add_key(id.trim(), key.as_bytes());
             }
             "--require-auth" => cfg.agents.require_auth = true,
+            "--strict" => cfg.strict = true,
             "--boards" => {
                 cfg.board_count = Some(args.next().and_then(|v| v.parse().ok()).expect("--boards N"));
             }
@@ -179,6 +184,7 @@ fn parse_args() -> Config {
                 println!("       [--eve eve.json] [--eve-board N] [--board <ip|cidr>=<index>]...");
                 println!("       [--agent <id>=<board>]... [--agent-key <id>=<pskfile>]... [--require-auth]");
                 println!("       [--boards N]  (viewer arranges N boards evenly on a circle)");
+                println!("       [--strict]  (show only agents/sources mapped to a board; drop the rest)");
                 std::process::exit(0);
             }
             other => cfg.web_dir = other.to_string(),
@@ -197,7 +203,7 @@ async fn main() {
     let rules_max = cfg.boards.iter().map(|r| r.board).max().unwrap_or(0)
         .max(cfg.agents.max_board())
         .max(cfg.eve_board);
-    let board_count = cfg.board_count.unwrap_or((rules_max + 1).max(2));
+    let board_count = cfg.board_count.unwrap_or((rules_max + 1).max(2)).min(MAX_BOARDS);
     let (frame_tx, _) = broadcast::channel::<Arc<Message>>(512);
     let (item_tx, item_rx) = mpsc::channel::<Parsed>(65536);
 
@@ -228,7 +234,7 @@ async fn main() {
         board_count,
     });
 
-    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents));
+    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents, cfg.strict));
     if let Some(path) = cfg.eve.clone() {
         tokio::spawn(eve::tail_eve(path, cfg.eve_board, item_tx.clone()));
     }
@@ -264,6 +270,9 @@ async fn main() {
                  auth_keys, auth_required);
     }
     println!("  boards            : {} (viewer arranges them on a circle)", board_count);
+    if cfg.strict {
+        println!("  strict selection  : only mapped agents/sources are shown");
+    }
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind http");
     axum::serve(listener, app).await.expect("serve http");
 }
@@ -406,7 +415,7 @@ fn unix_now() -> i64 {
 }
 
 async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketAddr>,
-                    boards: Vec<BoardRule>, agents: AgentDirectory) {
+                    boards: Vec<BoardRule>, agents: AgentDirectory, strict: bool) {
     let sock = UdpSocket::bind(("0.0.0.0", port)).await.expect("bind udp");
     let fwd_sock = if forward.is_some() {
         Some(UdpSocket::bind(("0.0.0.0", 0)).await.expect("bind forward socket"))
@@ -430,7 +439,14 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketA
             // legacy passthrough: forward without the PACKTERAGENT line
             let _ = fs.send_to(peeled.rest.as_bytes(), dst).await;
         }
-        let board = peeled.board.unwrap_or_else(|| board_for(peer.ip(), &boards));
+        // explicit board: from the agent-id map, else a --board ip rule.
+        // in --strict mode an unmapped source is dropped (the --agent list
+        // is then the allowlist of what gets shown); otherwise it lands on 0.
+        let mapped = peeled.board.or_else(|| board_for(peer.ip(), &boards));
+        if strict && mapped.is_none() {
+            continue;
+        }
+        let board = mapped.unwrap_or(0);
         let ctrl_ok = !agents.controls_need_auth() || peeled.authed;
 
         // an agent's -A id becomes its board caption (deduped on change)
@@ -472,10 +488,10 @@ mod tests {
             parse_board_rule("2001:db8::1=4").unwrap(),
         ];
         let ip = |s: &str| s.parse::<std::net::IpAddr>().unwrap();
-        assert_eq!(board_for(ip("192.168.1.5"), &rules), 2);
-        assert_eq!(board_for(ip("10.99.1.2"), &rules), 3);
-        assert_eq!(board_for(ip("2001:db8::1"), &rules), 4);
-        assert_eq!(board_for(ip("172.16.0.1"), &rules), 0); // default
+        assert_eq!(board_for(ip("192.168.1.5"), &rules), Some(2));
+        assert_eq!(board_for(ip("10.99.1.2"), &rules), Some(3));
+        assert_eq!(board_for(ip("2001:db8::1"), &rules), Some(4));
+        assert_eq!(board_for(ip("172.16.0.1"), &rules), None); // unmapped
         assert!(parse_board_rule("nonsense").is_none());
         assert!(parse_board_rule("10.0.0.0/40=1").is_none());
     }

@@ -167,6 +167,7 @@ const BOARD_RADIUS = cfg.radius ?? 110;
 const BOARD_SIZE = cfg.boardSize ?? FIELD * 1.15;
 const boardFrames = [];      // index -> { origin, right, up, name }
 const boardObjects = [];     // index -> { panel, sprite } (for teardown)
+const boardHidden = [];      // index -> bool (viewer-side live filter)
 
 function defaultBoardName(i) {
   if (i === 0) return 'sender';
@@ -210,11 +211,23 @@ function rebuildBoards(count) {
     sprite.scale.set(BOARD_SIZE * 0.72, BOARD_SIZE * 0.18, 1);
     scene.add(sprite);
 
+    panel.visible = !boardHidden[i];
+    sprite.visible = !boardHidden[i];
     boardObjects[i] = { panel, sprite };
     boardLabelDraw[i] = draw;
     boardLabelText[i] = caption;
     boardFrames[i] = { origin, right, up, name };
   }
+}
+
+// live, viewer-side board filter: digit keys 1..9 hide/show a board and
+// suppress packets to/from it (operational selection still lives on the
+// broker via --strict / --agent; this is for ad-hoc exploration)
+function toggleBoard(i) {
+  if (i < 0 || i >= boardObjects.length) return;
+  boardHidden[i] = !boardHidden[i];
+  boardObjects[i].panel.visible = !boardHidden[i];
+  boardObjects[i].sprite.visible = !boardHidden[i];
 }
 rebuildBoards(cfg.boards?.length || 2);
 
@@ -346,6 +359,10 @@ window.addEventListener('keydown', e => {
   if (e.code === 'Enter' && e.altKey) { // legacy: Alt+Enter fullscreen
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     else document.body.requestFullscreen().catch(() => {});
+  }
+  if (e.code.startsWith('Digit')) {     // 1..9 hide/show a board live
+    const n = Number(e.code.slice(5));
+    if (n >= 1) toggleBoard(n - 1);
   }
 });
 
@@ -534,6 +551,8 @@ canvas.addEventListener('click', e => {
 window.__packter = {
   packets, camera, raycaster, boardFrames,
   boardLabels: () => boardLabelText.slice(),
+  boardHidden: () => boardHidden.slice(),
+  toggleBoard,
   stats: () => ({ buffered: ev.t.length, visible: packets.count, mode }),
   boardCounts: () => {
     const c = {};
@@ -562,6 +581,7 @@ function updatePackets(vt) {
   for (; i < ev.t.length && n < MAX_VISIBLE; i++) {
     const t0 = ev.t[i];
     if (t0 > vt) break;
+    if (boardHidden[ev.sb[i]] || boardHidden[ev.db[i]]) continue;
     const f = (vt - t0) / FLY_MS;
     packetPosition(i, f, tmpVec);
     m4.makeTranslation(tmpVec.x, tmpVec.y, tmpVec.z);
@@ -603,7 +623,7 @@ function frame() {
       `PACKTER 3.0 alpha — ${wsState}<br>` +
       `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / ${REWIND_MS / 1000}s)<br>` +
       `flags:${flagStatsHtml()}<br>` +
-      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD Alt+Enter=fullscreen | click=select`;
+      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide board | click=select`;
     if (mode === 'paused') {
       const start = ev.t.length ? Math.max(ev.t[0], now - REWIND_MS) : now - REWIND_MS;
       seek.value = Math.round(1000 * (pausedAt - start) / Math.max(1, now - start));
