@@ -2,6 +2,9 @@ broker/target/
 *.exe
 .claude/
 __pycache__/
+# GeoIP data is never bundled — fetch it with tools/fetch-geoip.sh (CC BY, DB-IP)
+*.mmdb
+*.mmdb.gz
 *.o
 *.a
 agent/pt_agent

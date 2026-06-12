@@ -97,6 +97,11 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
   「IP to City Lite」MMDB（CC BY 4.0、表示が条件）** を与える。MaxMind GeoLite2
   は再配布不可のため非推奨。`web/assets/compiled/world_ga_worldmap_*.png` は旧
   Packter 由来の素材（CC BY）。
+- MMDB の入手: `tools/fetch-geoip.sh [out.mmdb]` で DB-IP Lite を取得できる
+  （登録・契約不要の直DL）。**ビルド/CIでは自動取得せず、データも同梱しない** ——
+  実行は任意の手動ステップ。手で落とす場合は <https://db-ip.com/db/download/ip-to-city-lite>。
+  **CC BY 4.0 のため、データ由来の表示を出す箇所に「IP geolocation by DB-IP」
+  （db-ip.com へのリンク）のクレジットが必須**。
 - 必要外部: Three.js 0.160（jsDelivr CDN）。オフライン運用ではローカルへ同梱に差し替え
 
 ## 動作確認
