@@ -14,9 +14,13 @@ CFLAGS  += -std=c99 -Wall -Wextra -D_DEFAULT_SOURCE -Iinclude -Ilib
 LDLIBS   =
 PCAP_LIBS = -lpcap
 
+# GEOIP=1 enables -G (PACKTEARTH) via libmaxminddb against a DB-IP "IP to City
+# Lite" MMDB (CC BY 4.0). lib/mesg.c references the lookup, so every sender
+# binary pulls it in — add the lib to both the base and the capture link sets.
 ifeq ($(GEOIP),1)
 CFLAGS    += -DPACKTER_HAVE_GEOIP
-PCAP_LIBS += -lGeoIP
+LDLIBS    += -lmaxminddb
+PCAP_LIBS += -lmaxminddb
 endif
 
 pt_agent pt_thmon tests/test_unit: LDLIBS = $(PCAP_LIBS)

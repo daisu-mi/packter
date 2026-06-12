@@ -61,7 +61,18 @@ const REWIND_MS = cfg.rewindMs;
 const MAX_EVENTS = 2_000_000;
 const MAX_VISIBLE = 20000;
 
-const KIND_LAY = 0, KIND_BALLISTIC = 1;
+const KIND_LAY = 0, KIND_BALLISTIC = 1, KIND_EARTH = 3;
+
+// PACKTEARTH globe mode (cfg.mode:"earth" or ?mode=earth). Endpoints carry
+// geographic coordinates the broker normalised as sx=(lon+180)/360,
+// sy=(lat+90)/180; we recover them and place packets on a textured sphere,
+// flying each along a great-circle (Slerp) arc — the original "Save Our
+// Planet" design.
+const EARTH_MODE = cfg.mode === 'earth'
+  || new URLSearchParams(location.search).get('mode') === 'earth';
+const EARTH_R = cfg.earthRadius || 140;      // globe radius (world units)
+const EARTH_ARC = cfg.earthArc ?? 0.35;      // arc apogee as a fraction of R
+const WORLDMAP = cfg.worldmap || 'assets/compiled/world_ga_worldmap_5_2.png';
 
 // flag colors from legacy packter0-9.png swatches (config-overridable)
 const FLAG_HEX = cfg.flagColors || [
@@ -270,7 +281,29 @@ function toggleBoard(i) {
   boardObjects[i].border.visible = !boardHidden[i];
   boardObjects[i].sprite.visible = !boardHidden[i];
 }
-rebuildBoards(cfg.boards?.length || 2);
+// PACKTEARTH globe: a worldmap-textured sphere. lat/lon endpoints are placed
+// on its surface and packets fly great-circle arcs between them (buildGlobe is
+// used instead of the boards when EARTH_MODE is on).
+let globe = null;
+function buildGlobe() {
+  const mat = new THREE.MeshPhongMaterial({ color: 0x6f93b6, emissive: 0x0a1622, shininess: 6 });
+  globe = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 48), mat);
+  scene.add(globe);
+  texLoader.load(WORLDMAP, tex => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mat.map = tex; mat.color.set(0xffffff); mat.needsUpdate = true;
+  });
+  // faint atmosphere halo
+  scene.add(new THREE.Mesh(
+    new THREE.SphereGeometry(EARTH_R * 1.025, 48, 32),
+    new THREE.MeshBasicMaterial({ color: 0x3a6ea5, transparent: true, opacity: 0.12, side: THREE.BackSide })));
+  camera.position.set(0, EARTH_R * 0.5, EARTH_R * 3.0);
+  controls.target.set(0, 0, 0);
+  controls.maxDistance = EARTH_R * 9;
+  controls.update();
+}
+
+if (EARTH_MODE) buildGlobe(); else rebuildBoards(cfg.boards?.length || 2);
 
 function setBoardLabel(index, text) {
   if (index < 0 || index >= boardLabelDraw.length) return;
@@ -508,7 +541,7 @@ function handleControl(c) {
     case 'voice': speak(c.text); break;
     case 'skydome': setSkydome(`assets/legacy/${c.file}`); break;
     case 'board': setBoardLabel(c.index, c.label); break;
-    case 'layout': if (c.count !== boardFrames.length) rebuildBoards(c.count); break;
+    case 'layout': if (!EARTH_MODE && c.count !== boardFrames.length) rebuildBoards(c.count); break;
   }
 }
 
@@ -558,7 +591,37 @@ const tmpVec = new THREE.Vector3();
 const srcPt = new THREE.Vector3();
 const dstPt = new THREE.Vector3();
 
+// equirectangular unit coord (sx,sy in 0..1) -> unit vector on the globe.
+// Convention matches three.js SphereGeometry UVs so the worldmap lines up.
+function dirFromUnit(sx, sy, out) {
+  const lon = sx * 360 - 180, lat = sy * 180 - 90;
+  const phi = (90 - lat) * Math.PI / 180;     // polar angle from +Y
+  const theta = (lon + 180) * Math.PI / 180;  // azimuth
+  return out.set(
+    -Math.sin(phi) * Math.cos(theta),
+    Math.cos(phi),
+    Math.sin(phi) * Math.sin(theta),
+  );
+}
+
+// great-circle Slerp between the two surface points, lifted into an arc.
+function geoPoint(i, f, out) {
+  dirFromUnit(ev.sx[i], ev.sy[i], srcPt);
+  dirFromUnit(ev.dx[i], ev.dy[i], dstPt);
+  const omega = Math.acos(Math.max(-1, Math.min(1, srcPt.dot(dstPt))));
+  if (omega < 1e-4) {
+    out.copy(srcPt);
+  } else {
+    const so = Math.sin(omega);
+    const a = Math.sin((1 - f) * omega) / so;
+    const b = Math.sin(f * omega) / so;
+    out.set(srcPt.x * a + dstPt.x * b, srcPt.y * a + dstPt.y * b, srcPt.z * a + dstPt.z * b);
+  }
+  out.multiplyScalar(EARTH_R * (1 + EARTH_ARC * Math.sin(Math.PI * f)));
+}
+
 function packetPosition(i, f, out) {
+  if (EARTH_MODE) { geoPoint(i, f, out); return; }
   boardPoint(ev.sb[i], ev.sx[i], ev.sy[i], srcPt);
   boardPoint(ev.db[i], ev.dx[i], ev.dy[i], dstPt);
   switch (ev.kind[i]) {
@@ -584,12 +647,19 @@ canvas.addEventListener('click', e => {
   const hits = raycaster.intersectObject(packets);
   if (hits.length > 0 && hits[0].instanceId !== undefined && visMap[hits[0].instanceId] !== undefined) {
     const sel = visMap[hits[0].instanceId];
-    const kindName = ['lay', 'ballistic'][ev.kind[sel]] || 'lay';
-    const bName = idx => boardLabelText[idx] || boardFrames[idx]?.name || `board${idx}`;
     selinfo.style.display = 'block';
-    selinfo.textContent =
-      `flag:${ev.flag[sel]} (${kindName}) ${bName(ev.sb[sel])}→${bName(ev.db[sel])}\n` +
-      `${ev.desc[sel] || '(no description)'}`;
+    if (EARTH_MODE) {
+      const ll = (sx, sy) => `${(sy * 180 - 90).toFixed(2)},${(sx * 360 - 180).toFixed(2)}`;
+      selinfo.textContent =
+        `flag:${ev.flag[sel]} (earth) ${ll(ev.sx[sel], ev.sy[sel])} → ${ll(ev.dx[sel], ev.dy[sel])}\n` +
+        `${ev.desc[sel] || '(no description)'}`;
+    } else {
+      const kindName = ['lay', 'ballistic'][ev.kind[sel]] || 'lay';
+      const bName = idx => boardLabelText[idx] || boardFrames[idx]?.name || `board${idx}`;
+      selinfo.textContent =
+        `flag:${ev.flag[sel]} (${kindName}) ${bName(ev.sb[sel])}→${bName(ev.db[sel])}\n` +
+        `${ev.desc[sel] || '(no description)'}`;
+    }
   } else {
     selinfo.style.display = 'none';
   }

@@ -59,6 +59,20 @@ packter-broker web --boards 4 \
 | 5 | 五角形 | ![5](docs/img/5board-flow.png) |
 | 6 | 六角形 | ![6](docs/img/6board-flow.png) |
 
+## 地球儀ビュー（PACKTEARTH）
+
+送信元/宛先を**緯度経度**で表し、攻撃を世界地図テクスチャを貼った地球儀上の
+**大圏アーク（弾道）**として飛ばすモード。`http://<broker>:11380/?mode=earth`
+（または `?config=config-earth.json`）で起動する。
+
+```sh
+pt_agent -v <broker> -i eth0 -G dbip-city-lite.mmdb   # IP→緯度経度（要 GEOIP=1 ビルド）
+python tools/sender.py --earth                         # テスト用（都市間トラフィック）
+```
+
+位置情報には **DB-IP「IP to City Lite」（CC BY 4.0）** を推奨。再配布可能だが
+**表示（DB-IP.com へのクレジット）が条件**。MaxMind GeoLite2 は再配布不可なので非推奨。
+
 ## ビューア操作
 
 `S`=停止 / `C`=ライブ復帰 / `B`,`F`=コマ送り / `Backspace`=-5分 / スライダー=スクラブ /
