@@ -15,7 +15,7 @@ static const char *progname;
 static void usage(void)
 {
     printf("usage: %s \n", progname);
-    printf("      -v [ Viewer IP address (IPv4/IPv6) ]\n");
+    printf("      -v [ Viewer host or IP (IPv4/IPv6) ]\n");
     printf("      -p [ Viewer Port number ] (optional: default %d)\n", PACKTER_VIEWER_PORT);
     printf("      -b [ NetFlow Bind IP, v4/v6 ] (optional: default 127.0.0.1 loopback; 0.0.0.0 or :: to expose)\n");
     printf("      -l [ NetFlow Listen port number ] (optional: default %d)\n", PACKTER_NETFLOW_PORT);

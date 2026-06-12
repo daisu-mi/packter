@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #include "packter.h"
 
@@ -85,24 +86,44 @@ void packter_ctx_init(packter_ctx *ctx)
  */
 int packter_connect(packter_ctx *ctx, const char *ip, int port)
 {
+    struct addrinfo hints, *res, *ai;
+    char portstr[16];
+    int gai;
+
     if (port <= 0) {
         port = PACKTER_VIEWER_PORT;
     }
-    if (inet_pton(AF_INET, ip, &ctx->addr.sin_addr) == 1) {
-        ctx->use6 = PACKTER_FALSE;
-        ctx->addr.sin_port = htons((uint16_t)port);
-        ctx->sock = socket(PF_INET, SOCK_DGRAM, 0);
-    } else if (inet_pton(AF_INET6, ip, &ctx->addr6.sin6_addr) == 1) {
-        ctx->use6 = PACKTER_TRUE;
-        ctx->addr6.sin6_port = htons((uint16_t)port);
-        ctx->sock = socket(PF_INET6, SOCK_DGRAM, 0);
-    } else {
-        fprintf(stderr, "invalid viewer address: %s\n", ip);
+    snprintf(portstr, sizeof(portstr), "%d", port);
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;        /* accept IPv4 or IPv6 */
+    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_protocol = IPPROTO_UDP;
+
+    /* getaddrinfo resolves a hostname ("broker", "localhost", FQDN) as well as
+     * a numeric IPv4/IPv6 literal — inet_pton only did the latter. */
+    if ((gai = getaddrinfo(ip, portstr, &hints, &res)) != 0) {
+        fprintf(stderr, "cannot resolve viewer address '%s': %s\n",
+                ip, gai_strerror(gai));
         return -1;
     }
-    if (ctx->sock < 0) {
-        perror("socket");
-        return -1;
+    for (ai = res; ai != NULL; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            memcpy(&ctx->addr, ai->ai_addr, ai->ai_addrlen);
+            ctx->use6 = PACKTER_FALSE;
+        } else if (ai->ai_family == AF_INET6) {
+            memcpy(&ctx->addr6, ai->ai_addr, ai->ai_addrlen);
+            ctx->use6 = PACKTER_TRUE;
+        } else {
+            continue;
+        }
+        ctx->sock = socket(ai->ai_family, SOCK_DGRAM, 0);
+        if (ctx->sock >= 0) {
+            freeaddrinfo(res);
+            return ctx->sock;
+        }
     }
-    return ctx->sock;
+    freeaddrinfo(res);
+    fprintf(stderr, "cannot open socket for viewer '%s'\n", ip);
+    return -1;
 }

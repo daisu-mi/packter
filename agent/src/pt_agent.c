@@ -15,7 +15,7 @@ static const char *progname;
 static void usage(void)
 {
     printf("usage: %s \n", progname);
-    printf("      -v [ Viewer IP address (IPv4/IPv6) ]\n");
+    printf("      -v [ Viewer host or IP (IPv4/IPv6) ]\n");
     printf("      -p [ Viewer Port number ] (optional: default %d)\n", PACKTER_VIEWER_PORT);
     printf("      -i [ Monitor device ] (optional)\n");
     printf("      -r [ Pcap dump file ] (optional)\n");
