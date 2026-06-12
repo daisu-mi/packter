@@ -768,10 +768,82 @@ window.__packter = {
 const m4 = new THREE.Matrix4();
 const flagVisible = new Array(10).fill(0);
 
-function updatePackets(vt) {
+// ---- earth-mode flourishes: missile trails + impact flashes (cfg.earthFx) --
+// A playful homage to the original PACKTEARTH: each packet drags a glowing
+// great-circle streak and bursts in a flash when it reaches its target.
+const EARTH_FX = EARTH_MODE && cfg.earthFx !== false;
+const TRAIL_F = 0.06;                 // tail length as a fraction of the flight
+const _tail = new THREE.Vector3();
+const WHITE = new THREE.Color(0xffffff);
+let trails = null, trailPos = null, trailCol = null;
+const explosions = [];
+
+function initEarthFx() {
+  trailPos = new Float32Array(MAX_VISIBLE * 2 * 3);   // one segment per packet
+  trailCol = new Float32Array(MAX_VISIBLE * 2 * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(trailPos, 3).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('color', new THREE.BufferAttribute(trailCol, 3).setUsage(THREE.DynamicDrawUsage));
+  trails = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+    vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  trails.frustumCulled = false;
+  scene.add(trails);
+
+  const cv = document.createElement('canvas'); cv.width = cv.height = 64;
+  const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.3, 'rgba(255,225,150,0.85)');
+  grd.addColorStop(1, 'rgba(255,110,40,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  for (let k = 0; k < 48; k++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0,
+    }));
+    sp.visible = false;
+    scene.add(sp);
+    explosions.push({ sp, born: 0, life: 480, on: false });
+  }
+}
+
+const _exp = new THREE.Vector3();
+function spawnExplosion(i, now) {
+  const slot = explosions.find(e => !e.on);
+  if (!slot) return;
+  dirFromUnit(ev.dx[i], ev.dy[i], _exp);
+  slot.sp.position.copy(_exp.multiplyScalar(EARTH_R * 1.01));
+  slot.sp.material.color.copy(FLAG_COLORS[ev.flag[i] % 10]).lerp(WHITE, 0.5);
+  slot.born = now; slot.on = true; slot.sp.visible = true;
+}
+
+function updateExplosions(now) {
+  for (const e of explosions) {
+    if (!e.on) continue;
+    const k = (now - e.born) / e.life;
+    if (k >= 1) { e.on = false; e.sp.visible = false; continue; }
+    const s = EARTH_R * (0.04 + 0.5 * k);
+    e.sp.scale.set(s, s, 1);
+    e.sp.material.opacity = (1 - k) * 0.9;
+  }
+}
+
+if (EARTH_FX) initEarthFx();
+
+function updatePackets(vt, now) {
   let i;
   if (mode === 'live') {
+    const prev = liveStart;
     while (liveStart < ev.t.length && ev.t[liveStart] + FLY_MS < vt) liveStart++;
+    // packets that just completed their flight burst on impact
+    if (EARTH_FX) {
+      let burst = 0;
+      for (let j = prev; j < liveStart && burst < 4; j++) {
+        if (boardHidden[ev.sb[j]] || boardHidden[ev.db[j]]) continue;
+        spawnExplosion(j, now); burst++;
+      }
+    }
     i = liveStart;
   } else {
     i = lowerBound(ev.t, vt - FLY_MS);
@@ -786,7 +858,16 @@ function updatePackets(vt) {
     packetPosition(i, f, tmpVec);
     m4.makeTranslation(tmpVec.x, tmpVec.y, tmpVec.z);
     packets.setMatrixAt(n, m4);
-    packets.setColorAt(n, FLAG_COLORS[ev.flag[i] % 10]);
+    const col = FLAG_COLORS[ev.flag[i] % 10];
+    packets.setColorAt(n, col);
+    if (EARTH_FX) {
+      geoPoint(i, Math.max(0, f - TRAIL_F), _tail);   // tail point along the arc
+      const o = n * 6;
+      trailPos[o] = _tail.x; trailPos[o + 1] = _tail.y; trailPos[o + 2] = _tail.z;
+      trailPos[o + 3] = tmpVec.x; trailPos[o + 4] = tmpVec.y; trailPos[o + 5] = tmpVec.z;
+      trailCol[o] = col.r * 0.05; trailCol[o + 1] = col.g * 0.05; trailCol[o + 2] = col.b * 0.05;
+      trailCol[o + 3] = col.r; trailCol[o + 4] = col.g; trailCol[o + 5] = col.b;
+    }
     flagVisible[ev.flag[i] % 10]++;
     visMap[n] = i;
     n++;
@@ -795,6 +876,11 @@ function updatePackets(vt) {
   visMap.length = n;
   packets.instanceMatrix.needsUpdate = true;
   if (packets.instanceColor) packets.instanceColor.needsUpdate = true;
+  if (EARTH_FX && trails) {
+    trails.geometry.setDrawRange(0, n * 2);
+    trails.geometry.attributes.position.needsUpdate = true;
+    trails.geometry.attributes.color.needsUpdate = true;
+  }
   return n;
 }
 
@@ -811,7 +897,8 @@ let lastPrune = 0, lastHud = 0;
 function frame() {
   const now = performance.now();
   const vt = viewTime(now);
-  const visible = updatePackets(vt);
+  const visible = updatePackets(vt, now);
+  if (EARTH_FX) updateExplosions(now);
 
   if (now - lastPrune > 1000) { lastPrune = now; pruneRing(now); }
   if (hudVisible && now - lastHud > 250) {

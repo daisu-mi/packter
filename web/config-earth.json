@@ -4,6 +4,7 @@
   "worldmap": "assets/compiled/world_ga_worldmap_5_2.png",
   "earthRadius": 140,
   "earthArc": 0.35,
+  "earthFx": true,
   "flyMs": 3000,
   "rewindMs": 300000,
   "skydome": "assets/compiled/skydometexture_0.png"
