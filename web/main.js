@@ -189,8 +189,9 @@ const boardObjects = [];     // index -> { panel, border, sprite } (teardown)
 const boardHidden = [];      // index -> bool (viewer-side live filter)
 
 function defaultBoardName(i) {
+  if (i === 0) return 'sender';
   if (i === 1) return 'receiver';
-  return `agent${i < 1 ? i + 1 : i}`;
+  return `agent${i - 1}`;   // board 2 -> agent1, board 3 -> agent2, ...
 }
 
 // circle radius that keeps the walls from overlapping (gaps are fine);
