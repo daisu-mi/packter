@@ -33,5 +33,6 @@ test_unit_LDADD   = libpackter.a $(PCAP_LIBS) $(MATH_LIBS) $(MMDB_LIBS)
 TESTS = test_unit
 
 # golden cross-check against the independent Python implementation
+# (invoke via sh so it does not depend on the exec bit surviving checkout)
 check-local: pt_agent$(EXEEXT)
-	cd $(srcdir)/tests && ./run_golden.sh
+	cd $(srcdir)/tests && sh run_golden.sh
