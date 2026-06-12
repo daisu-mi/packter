@@ -66,7 +66,7 @@ packter-broker web --boards 4 \
 （または `?config=config-earth.json`）で起動する。
 
 ```sh
-pt_agent -v <broker> -i eth0 -G dbip-city-lite.mmdb   # IP→緯度経度（要 GEOIP=1 ビルド）
+pt_agent -v <broker> -i eth0 -G dbip-city-lite.mmdb   # IP→緯度経度（要 ./configure --with-geoip）
 python tools/sender.py --earth                         # テスト用（都市間トラフィック）
 ```
 

@@ -7,9 +7,14 @@
  * The schema (location/latitude, location/longitude) is the GeoLite2-City
  * layout, so a GeoLite2 City MMDB also works if you hold a licence for it.
  *
- * Build with GEOIP=1 (adds -DPACKTER_HAVE_GEOIP and -lmaxminddb); otherwise
- * -G reports an explanatory error and the rest of the agent is unaffected.
+ * Enabled by configure when libmaxminddb is found (--with-geoip), which
+ * #defines PACKTER_HAVE_GEOIP in config.h; otherwise -G reports an
+ * explanatory error and the rest of the agent is unaffected.
  */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 

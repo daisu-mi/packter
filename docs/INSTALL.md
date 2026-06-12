@@ -38,19 +38,28 @@ cargo build --release
 ## エージェント（C）
 
 要件: C99 コンパイラ ＋ libpcap 開発ヘッダ。glib/OpenSSL は不要（MD5/SHA-256 内蔵）。
+ビルドは **autoconf/automake（`configure` 生成時のみ。配布tarballには `configure`
+同梱で不要）**。`configure` が libpcap・libm・libmaxminddb とプラットフォーム差を検出
+するので、Linux だけでなく **\*BSD / macOS でもそのままビルドできる**（GNU make 専用の
+旧 Makefile を廃止）。
 
 > **実行時の libpcap 依存**: ライブキャプチャする `pt_agent` と `pt_thmon` のみ
 > libpcap（`libpcap.so` / Linux なら `libpcap0.8`）を必要とする。`pt_sflow` /
 > `pt_netflow` / `pt_ipfix` / `pt_replay` は純粋な UDP・ファイル処理で、libpcap を
-> リンクしない＝**libpcap 未導入のホストでもそのまま動く**。ブローカー（Rust 単一
-> exe）は libpcap に一切依存しない。
+> リンクしない＝**libpcap 未導入のホストでもそのまま動く**（`configure` がツール毎に
+> リンクを出し分ける）。ブローカー（Rust 単一 exe）は libpcap に一切依存しない。
 
 ```sh
 cd agent
-make                 # pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
-make test            # ユニット + ゴールデン（独立Python実装と突き合わせ）
-make SANITIZE=1      # ASan/UBSan ビルド
-make GEOIP=1         # libmaxminddb で -G(PACKTEARTH) を有効化（任意・要 libmaxminddb-dev）
+./autogen.sh                    # configure を生成（git clone 時のみ。要 autoconf/automake）
+./configure                     # libpcap/libm/libmaxminddb を検出
+make                            # pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
+make check                      # ユニット + ゴールデン（独立Python実装と突き合わせ）
+
+# 任意のオプション
+./configure --with-geoip        # -G(PACKTEARTH) を有効化（libmaxminddb 必要）
+./configure --enable-sanitizer  # ASan/UBSan ビルド
+./configure --without-geoip     # GeoIP を明示的に無効化
 ```
 
 代表的な使い方:
@@ -95,7 +104,7 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
   （`pt_agent -G <MMDB>` か `sender.py --earth`）の緯度経度を地球儀上の大圏アークで描く。
   既定のテクスチャは NASA Blue Marble（パブリックドメイン、CDN 取得）。`config` の
   `earthTexture` で任意の正距円筒画像に差し替え可。オフライン/自己完結にしたい場合は
-  `earthStylize:true` で同梱の海岸線アウトラインを着色（海＝青/陸＝緑/砂漠帯＝砂・概略）。`-G` は `make GEOIP=1`（libmaxminddb）でビルドし、**DB-IP
+  `earthStylize:true` で同梱の海岸線アウトラインを着色（海＝青/陸＝緑/砂漠帯＝砂・概略）。`-G` は `./configure --with-geoip`（libmaxminddb）でビルドし、**DB-IP
   「IP to City Lite」MMDB（CC BY 4.0、表示が条件）** を与える。MaxMind GeoLite2
   は再配布不可のため非推奨。`web/assets/compiled/world_ga_worldmap_*.png` は旧
   Packter 由来の素材（CC BY）。
@@ -113,7 +122,7 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 cd broker && cargo test          # 26 件
 
 # エージェント
-cd agent && make test            # ユニット + golden(plain/traceback/bulk/auth)
+cd agent && ./configure && make check   # ユニット + golden(plain/traceback/bulk/auth)
 
 # 通し（手動）: ブローカー起動 → sender.py → ブラウザ
 ```
