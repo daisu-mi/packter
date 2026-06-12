@@ -284,15 +284,76 @@ function toggleBoard(i) {
 // PACKTEARTH globe: a worldmap-textured sphere. lat/lon endpoints are placed
 // on its surface and packets fly great-circle arcs between them (buildGlobe is
 // used instead of the boards when EARTH_MODE is on).
+// Turn the bundled coastline-outline worldmap into a coloured earth: ocean is
+// found by flood-filling the blank pixels inward from the image border (not
+// crossing coastlines); the rest is land — green, sand in the desert latitude
+// bands, ice near the poles. Coastlines are kept as faint borders.
+function makeEarthTexture(img) {
+  const W = img.width, H = img.height;
+  const cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.drawImage(img, 0, 0);
+  const data = g.getImageData(0, 0, W, H);
+  const px = data.data;
+  // a coastline pixel is OPAQUE and dark; everything else (white OR the
+  // transparent background) is "blank" and floodable as ocean/land interior
+  const isLine = i => px[i + 3] >= 128 && (px[i] + px[i + 1] + px[i + 2]) < 384;
+
+  // flood fill ocean from the four edges through blank (non-line) pixels
+  const sea = new Uint8Array(W * H);
+  const stack = [];
+  const visit = (x, y) => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const p = y * W + x;
+    if (sea[p] || isLine(p * 4)) return;
+    sea[p] = 1; stack.push(p);
+  };
+  // seed just inside the map's border frame; skip the bottom edge so the
+  // flood does not swallow Antarctica (left/right = Pacific, top = Arctic)
+  const inset = Math.round(Math.min(W, H) * 0.02);
+  for (let y = inset; y < H - inset; y++) { visit(inset, y); visit(W - 1 - inset, y); }
+  for (let x = inset; x < W - inset; x++) { visit(x, inset); }
+  while (stack.length) {
+    const p = stack.pop(), x = p % W, y = (p / W) | 0;
+    visit(x + 1, y); visit(x - 1, y); visit(x, y + 1); visit(x, y - 1);
+  }
+
+  for (let y = 0; y < H; y++) {
+    const a = Math.abs(90 - (y / H) * 180);     // |latitude|
+    for (let x = 0; x < W; x++) {
+      const p = y * W + x, i = p * 4;
+      let r, gr, b;
+      if (sea[p]) { r = 22; gr = 58; b = 110; }            // ocean
+      else if (a > 72) { r = 236; gr = 240; b = 245; }     // polar ice
+      else if (a > 14 && a < 34) { r = 200; gr = 178; b = 120; }  // desert sand
+      else { r = 54; gr = 120; b = 58; }                   // green land
+      px[i] = r; px[i + 1] = gr; px[i + 2] = b; px[i + 3] = 255;
+    }
+  }
+  g.putImageData(data, 0, 0);
+  // keep coastlines/borders as faint darker lines for definition
+  g.globalAlpha = 0.22;
+  g.globalCompositeOperation = 'multiply';
+  g.drawImage(img, 0, 0);
+  g.globalAlpha = 1; g.globalCompositeOperation = 'source-over';
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 let globe = null;
 function buildGlobe() {
-  const mat = new THREE.MeshPhongMaterial({ color: 0x6f93b6, emissive: 0x0a1622, shininess: 6 });
+  const mat = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0x0b1a2a, shininess: 10 });
   globe = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 48), mat);
+  globe.rotation.y = (cfg.earthTexRot ?? 0) * Math.PI / 180;   // align texture to lon
   scene.add(globe);
-  texLoader.load(WORLDMAP, tex => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    mat.map = tex; mat.color.set(0xffffff); mat.needsUpdate = true;
-  });
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => { mat.map = makeEarthTexture(img); mat.needsUpdate = true; };
+  img.onerror = () => texLoader.load(WORLDMAP, t => { mat.map = t; mat.needsUpdate = true; });
+  img.src = WORLDMAP;
   // faint atmosphere halo
   scene.add(new THREE.Mesh(
     new THREE.SphereGeometry(EARTH_R * 1.025, 48, 32),
