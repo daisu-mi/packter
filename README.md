@@ -27,7 +27,7 @@
 ## クイックスタート
 
 ```sh
-# 1) ブローカー起動（UDP 11300 受信、http://localhost:11380/ でビューア配信）
+# 1) ブローカー起動（UDP 11300 受信、http://localhost:11300/ でビューア配信）
 broker/target/release/packter-broker  web
 
 # 2) エージェントを向ける（実トラフィック）
@@ -37,7 +37,7 @@ agent/pt_agent -v <brokerのIP> -i eth0
 python tools/sender.py --pps 300
 ```
 
-ブラウザで `http://localhost:11380/` を開く。
+ブラウザで `http://localhost:11300/` を開く。
 
 ## N枚配置（複数エージェント）
 
@@ -62,7 +62,7 @@ packter-broker web --boards 4 \
 ## 地球儀ビュー（PACKTEARTH）
 
 送信元/宛先を**緯度経度**で表し、攻撃を世界地図テクスチャを貼った地球儀上の
-**大圏アーク（弾道）**として飛ばすモード。`http://<broker>:11380/?mode=earth`
+**大圏アーク（弾道）**として飛ばすモード。`http://<broker>:11300/?mode=earth`
 （または `?config=config-earth.json`）で起動する。
 
 ```sh

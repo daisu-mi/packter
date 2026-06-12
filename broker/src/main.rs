@@ -67,6 +67,7 @@ impl Shared {
 
 struct Config {
     web_dir: String,
+    bind: String,
     udp_port: u16,
     http_port: u16,
     forward: Option<SocketAddr>,
@@ -130,8 +131,9 @@ fn board_for(peer: std::net::IpAddr, rules: &[BoardRule]) -> Option<u8> {
 fn parse_args() -> Config {
     let mut cfg = Config {
         web_dir: "../web".to_string(),
+        bind: "127.0.0.1".to_string(),   // secure default: localhost only
         udp_port: 11300,
-        http_port: 11380,
+        http_port: 11300,               // TCP (HTTP/WS); UDP 11300 is a separate socket
         forward: None,
         record: None,
         thmon: None,
@@ -145,6 +147,7 @@ fn parse_args() -> Config {
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--bind" => cfg.bind = args.next().expect("--bind ADDR"),
             "--udp" => cfg.udp_port = args.next().and_then(|v| v.parse().ok()).expect("--udp PORT"),
             "--http" => cfg.http_port = args.next().and_then(|v| v.parse().ok()).expect("--http PORT"),
             "--forward" => {
@@ -179,7 +182,9 @@ fn parse_args() -> Config {
                 cfg.board_count = Some(args.next().and_then(|v| v.parse().ok()).expect("--boards N"));
             }
             "--help" | "-h" => {
-                println!("usage: packter-broker [WEB_DIR] [--udp 11300] [--http 11380]");
+                println!("usage: packter-broker [WEB_DIR] [--bind 127.0.0.1] [--udp 11300] [--http 11380]");
+                println!("       (--bind defaults to 127.0.0.1; use 0.0.0.0 or a specific IP to accept");
+                println!("        remote agents/browsers — see the security note in docs/INSTALL.md)");
                 println!("       [--forward IP:PORT] [--record FILE] [--thmon packter.conf]");
                 println!("       [--eve eve.json] [--eve-board N] [--board <ip|cidr>=<index>]...");
                 println!("       [--agent <id>=<board>]... [--agent-key <id>=<pskfile>]... [--require-auth]");
@@ -235,7 +240,8 @@ async fn main() {
         board_count,
     });
 
-    tokio::spawn(udp_ingest(item_tx.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents, cfg.strict));
+    let bind = cfg.bind.clone();
+    tokio::spawn(udp_ingest(item_tx.clone(), bind.clone(), cfg.udp_port, cfg.forward, cfg.boards.clone(), cfg.agents, cfg.strict));
     if let Some(path) = cfg.eve.clone() {
         tokio::spawn(eve::tail_eve(path, cfg.eve_board, item_tx.clone()));
     }
@@ -246,11 +252,17 @@ async fn main() {
         .fallback_service(ServeDir::new(&cfg.web_dir))
         .with_state(shared);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.http_port));
+    let bind_ip: std::net::IpAddr = bind.parse()
+        .unwrap_or_else(|_| panic!("invalid --bind address: {bind}"));
+    let addr = SocketAddr::from((bind_ip, cfg.http_port));
     println!("packter-broker {}", env!("CARGO_PKG_VERSION"));
-    println!("  legacy UDP ingest : 0.0.0.0:{}", cfg.udp_port);
-    println!("  viewer + websocket: http://localhost:{}/  (ws: /ws)", cfg.http_port);
+    println!("  legacy UDP ingest : {}:{}", bind, cfg.udp_port);
+    println!("  viewer + websocket: http://{}:{}/  (ws: /ws)", bind, cfg.http_port);
     println!("  serving web dir   : {}", cfg.web_dir);
+    if bind_ip.is_unspecified() {
+        println!("  *** WARNING: bound to {bind} (all interfaces) — exposed to the network.", );
+        println!("      Run behind a trusted segment; use --require-auth to gate control commands.");
+    }
     if let Some(f) = cfg.forward {
         println!("  legacy passthrough: forwarding raw datagrams to {f}");
     }
@@ -415,9 +427,9 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
-async fn udp_ingest(tx: mpsc::Sender<Parsed>, port: u16, forward: Option<SocketAddr>,
+async fn udp_ingest(tx: mpsc::Sender<Parsed>, bind: String, port: u16, forward: Option<SocketAddr>,
                     boards: Vec<BoardRule>, agents: AgentDirectory, strict: bool) {
-    let sock = UdpSocket::bind(("0.0.0.0", port)).await.expect("bind udp");
+    let sock = UdpSocket::bind((bind.as_str(), port)).await.expect("bind udp");
     let fwd_sock = if forward.is_some() {
         Some(UdpSocket::bind(("0.0.0.0", 0)).await.expect("bind forward socket"))
     } else {

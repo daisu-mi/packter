@@ -19,8 +19,9 @@ cargo build --release
 | オプション | 既定 | 説明 |
 |---|---|---|
 | `<WEB_DIR>` | `../web` | ビューア静的ファイルのディレクトリ |
+| `--bind <addr>` | **127.0.0.1** | Listen アドレス（**secure-by-default＝既定loopback**）。リモートのエージェント/ブラウザを受けるには `0.0.0.0` か特定IPを明示指定。UDP・TCP 両方に適用 |
 | `--udp <port>` | 11300 | レガシーUDP受信ポート |
-| `--http <port>` | 11380 | HTTP/WebSocket ポート |
+| `--http <port>` | 11300 | HTTP/WebSocket ポート（TCP。UDP 11300 とはプロトコルが違うので同番号で共存） |
 | `--boards <N>` | 自動 | ボード枚数（省略時はルールから導出、上限16） |
 | `--agent <id>=<board>` | — | エージェントIDをボードに割り当て |
 | `--agent-key <id>=<pskfile>` | — | HMAC認証用PSK（ファイルから読む） |
@@ -31,6 +32,11 @@ cargo build --release
 | `--thmon <conf>` | — | 適応型トラフィック監視（CUSUM＋EWMA、旧packter.conf互換、`broker/packter.conf.sample`） |
 | `--eve <file>` | — | Suricata EVE JSON を tail して取り込み |
 | `--eve-board <N>` | 0 | EVE由来イベントのボード |
+
+> **secure-by-default**: ブローカーは既定で **127.0.0.1（loopback）のみ**を Listen する。
+> リモートのエージェントやブラウザから受けるときだけ `--bind 0.0.0.0`（または管理IP）を
+> 明示指定する。全インターフェイスへ公開した場合は起動時に警告を出すので、信頼できる
+> セグメントで動かし、`--require-auth` で制御コマンド（PACKTERMSG/HTML）をゲートすること。
 
 > Windows + Rust GNU ツールチェーンでビルドする場合、`tokio` を 1.38 系に固定済み
 > （新しい tokio は raw-dylib の windows-sys を要求し dlltool が必要になるため）。
@@ -83,15 +89,15 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
   のみ解釈する（それ以外のバージョンは無視）。NetFlow v9 と IPFIX はテンプレート/データの
   解析コアを共用（`lib/nf_common.c`）。IPFIX の可変長(0xFFFF)フィールドを含むテンプレートは
   現状デコード対象外（安全に無視）。
-- 3 コレクタとも受信ソケットは**デュアルスタック**（`AF_INET6` ＋ `IPV6_V6ONLY=0`）。
-  1 プロセスで IPv4／IPv6 どちらのエクスポータからも受信できる（IPv4 は v4-mapped で着信）。
-  `-b` は v4／v6 いずれのリテラルも可（v4 指定時は内部で `::ffff:a.b.c.d` に変換）。
-  なお、フロー*内容*としての IPv6 アドレス（NetFlow/IPFIX の IE 27/28、sFlow のサンプル
-  フレーム、pcap の IPv6）は転送方式とは独立に従来から対応済み。
-- どちらも**信頼できる管理セグメント**で動かすこと。`-b <管理IP>` で受信を管理IFに
-  限定し、`-u <user>` で権限を落とす。`pt_netflow` のテンプレートキャッシュは
-  上限を持たないため、未知の送信元からの偽テンプレート洪水はメモリを消費しうる
-  （管理面に閉じていれば実害なし）。インターネットに晒さないこと。
+- 3 コレクタとも受信ソケットは**デュアルスタック**（`AF_INET6` ＋ `IPV6_V6ONLY=0`）だが、
+  **secure-by-default で既定バインドは `127.0.0.1`（loopback）**。実機（ルータ/スイッチ）
+  からフローを受けるには `-b <管理IP>`（または `-b 0.0.0.0` / `-b ::`）を明示指定する。
+  `-b` は v4／v6 いずれのリテラルも可（v4 指定時は内部で `::ffff:a.b.c.d` に変換、`::` で
+  v4+v6 全受信）。フロー*内容*としての IPv6 アドレス（NetFlow/IPFIX の IE 27/28、sFlow の
+  サンプルフレーム、pcap の IPv6）は転送方式とは独立に従来から対応済み。
+- 公開する場合は**信頼できる管理セグメント**に限定し、`-u <user>` で権限を落とすこと。
+  `pt_netflow` のテンプレートキャッシュは上限を持たないため、未知の送信元からの偽テンプレート
+  洪水はメモリを消費しうる（管理面に閉じていれば実害なし）。インターネットに晒さないこと。
 
 ## Webビューア
 
@@ -99,7 +105,7 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 ホストし、`ws://<host>:<port>/ws` に繋がるよう同一オリジンに置く。
 
 - `web/config.json` … サイズ・flag色・ボード名・半径・地形glTF 等（任意・全キー省略可）
-- レイアウト別: `http://<broker>:11380/?config=<file>` で代替設定を読込
+- レイアウト別: `http://<broker>:11300/?config=<file>` で代替設定を読込
 - 地球儀ビュー: `?mode=earth`（または `?config=config-earth.json`）。PACKTEARTH
   （`pt_agent -G <MMDB>` か `sender.py --earth`）の緯度経度を地球儀上の大圏アークで描く。
   既定のテクスチャは NASA Blue Marble（パブリックドメイン、CDN 取得）。`config` の
@@ -119,7 +125,7 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 
 ```sh
 # ブローカー単体テスト
-cd broker && cargo test          # 26 件
+cd broker && cargo test          # 27 件
 
 # エージェント
 cd agent && ./configure && make check   # ユニット + golden(plain/traceback/bulk/auth)

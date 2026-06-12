@@ -17,7 +17,7 @@ static void usage(void)
     printf("usage: %s \n", progname);
     printf("      -v [ Viewer IP address (IPv4/IPv6) ]\n");
     printf("      -p [ Viewer Port number ] (optional: default %d)\n", PACKTER_VIEWER_PORT);
-    printf("      -b [ sFlow Bind IP address, v4 or v6 ] (optional: default :: dual-stack)\n");
+    printf("      -b [ sFlow Bind IP, v4/v6 ] (optional: default 127.0.0.1 loopback; 0.0.0.0 or :: to expose)\n");
     printf("      -l [ sFlow Listen port number ] (optional: default %d)\n", PACKTER_SFLOW_PORT);
     printf("      -u [ Run as another username ] (optional)\n");
     printf("      -g [ Run as another groupname ] (optional)\n");
@@ -55,7 +55,7 @@ int main(int argc, char *argv[])
 {
     packter_ctx ctx;
     const char *ip = NULL;
-    const char *bind_addr = NULL;
+    const char *bind_addr = "127.0.0.1";   /* secure default: loopback; -b to expose */
     const char *user = NULL;
     const char *group = NULL;
     int port = 0;
