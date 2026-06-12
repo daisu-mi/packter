@@ -92,8 +92,10 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 - `web/config.json` … サイズ・flag色・ボード名・半径・地形glTF 等（任意・全キー省略可）
 - レイアウト別: `http://<broker>:11380/?config=<file>` で代替設定を読込
 - 地球儀ビュー: `?mode=earth`（または `?config=config-earth.json`）。PACKTEARTH
-  （`pt_agent -G <MMDB>` か `sender.py --earth`）の緯度経度を世界地図球体上の
-  大圏アークで描く。`-G` は `make GEOIP=1`（libmaxminddb）でビルドし、**DB-IP
+  （`pt_agent -G <MMDB>` か `sender.py --earth`）の緯度経度を地球儀上の大圏アークで描く。
+  既定のテクスチャは NASA Blue Marble（パブリックドメイン、CDN 取得）。`config` の
+  `earthTexture` で任意の正距円筒画像に差し替え可。オフライン/自己完結にしたい場合は
+  `earthStylize:true` で同梱の海岸線アウトラインを着色（海＝青/陸＝緑/砂漠帯＝砂・概略）。`-G` は `make GEOIP=1`（libmaxminddb）でビルドし、**DB-IP
   「IP to City Lite」MMDB（CC BY 4.0、表示が条件）** を与える。MaxMind GeoLite2
   は再配布不可のため非推奨。`web/assets/compiled/world_ga_worldmap_*.png` は旧
   Packter 由来の素材（CC BY）。

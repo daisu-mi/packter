@@ -72,6 +72,12 @@ const EARTH_MODE = cfg.mode === 'earth'
   || new URLSearchParams(location.search).get('mode') === 'earth';
 const EARTH_R = cfg.earthRadius || 140;      // globe radius (world units)
 const EARTH_ARC = cfg.earthArc ?? 0.35;      // arc apogee as a fraction of R
+// real equirectangular earth texture (NASA Blue Marble, public domain) — the
+// accurate default. cfg.earthTexture overrides; cfg.earthStylize falls back to
+// recolouring the bundled CC-BY coastline outline (self-contained but rough).
+const EARTH_TEX = cfg.earthTexture
+  || 'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg';
+const EARTH_STYLIZE = cfg.earthStylize === true;
 const WORLDMAP = cfg.worldmap || 'assets/compiled/world_ga_worldmap_5_2.png';
 
 // flag colors from legacy packter0-9.png swatches (config-overridable)
@@ -349,11 +355,19 @@ function buildGlobe() {
   globe = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 48), mat);
   globe.rotation.y = (cfg.earthTexRot ?? 0) * Math.PI / 180;   // align texture to lon
   scene.add(globe);
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = () => { mat.map = makeEarthTexture(img); mat.needsUpdate = true; };
-  img.onerror = () => texLoader.load(WORLDMAP, t => { mat.map = t; mat.needsUpdate = true; });
-  img.src = WORLDMAP;
+  if (EARTH_STYLIZE) {
+    // recolour the bundled coastline outline (offline, self-contained, rough)
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { mat.map = makeEarthTexture(img); mat.needsUpdate = true; };
+    img.onerror = () => texLoader.load(WORLDMAP, t => { mat.map = t; mat.needsUpdate = true; });
+    img.src = WORLDMAP;
+  } else {
+    texLoader.load(EARTH_TEX, tex => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mat.map = tex; mat.needsUpdate = true;
+    });
+  }
   // faint atmosphere halo
   scene.add(new THREE.Mesh(
     new THREE.SphereGeometry(EARTH_R * 1.025, 48, 32),
