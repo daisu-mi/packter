@@ -397,7 +397,7 @@ MON_SYN_SOUND=Detection.wav
 MON_SYN_VOICE=SYNが多すぎます
 MON_ICMP_MSG=<b>ICMP</b>
 MON_OPT_MSG_HEAD=[alert]
-MON_SKYDOME_START=red.bmp
+MON_SKYDOME_START=red.png
 ";
 
     /// Feed one full window (count_max events) with the given class mix

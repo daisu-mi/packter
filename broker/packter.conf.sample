@@ -44,5 +44,6 @@ MON_ICMP_SOUND=Detection.wav
 MON_UDP_PIC=pic03.png
 MON_UDP_MSG=<b>UDPの比率が閾値を超えました</b><br>
 
-# 検知時にスカイドームを差し替える場合
-# MON_SKYDOME_START=texture1.bmp
+# 検知時にスカイドームを差し替える場合（Webビューアは PNG/JPG。旧版の .bmp ではない）
+# 指定ファイルは web/assets/legacy/ に置くこと（THREE.TextureLoader で読込）
+# MON_SKYDOME_START=alert_sky.png
