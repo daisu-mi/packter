@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>   /* AF_INET/AF_INET6 (not pulled in via arpa/inet.h on *BSD) */
+#include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pcap.h>
 
