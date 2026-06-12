@@ -8,9 +8,10 @@ pub const KIND_GATEWAY: u8 = 2;
 pub const KIND_EARTH: u8 = 3;
 
 /// One flying-object event (coordinates normalized 0..=1, legacy rules).
-/// src_board/dst_board index into the viewer's board array (N面配置);
-/// the parser leaves them at the classic 0 (sender) / 1 (receiver) and
-/// the ingest layer reassigns src_board from the datagram's source.
+/// src_board/dst_board index into the viewer's board array (N面配置).
+/// Convention: board 0 = receiver (the fly destination, always), board 1 =
+/// sender (default source); the ingest layer reassigns src_board from the
+/// datagram's source (--agent / --board), dst_board stays the receiver.
 #[derive(Clone, Debug)]
 pub struct FlyEvent {
     pub kind: u8,
@@ -150,8 +151,8 @@ fn parse_record(line: &str, kind: u8) -> Option<FlyEvent> {
             dx: (dlon + 180.0) / 360.0,
             dy: (dlat + 90.0) / 180.0,
             flag,
-            src_board: 0,
-            dst_board: 1,
+            src_board: 1,   // sender (default; ingest may remap by --agent/--board)
+            dst_board: 0,   // receiver
             desc,
         });
     }
@@ -161,7 +162,7 @@ fn parse_record(line: &str, kind: u8) -> Option<FlyEvent> {
     let dy = port_to_unit(parts[3])?;
     let flag: u32 = parts[4].trim().parse().ok()?;
     let desc = parts.get(5).map(|s| s.to_string()).unwrap_or_default();
-    Some(FlyEvent { kind, sx, sy, dx, dy, flag, src_board: 0, dst_board: 1, desc })
+    Some(FlyEvent { kind, sx, sy, dx, dy, flag, src_board: 1, dst_board: 0, desc })
 }
 
 pub fn addr_to_unit(s: &str) -> Option<f32> {

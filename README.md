@@ -46,9 +46,10 @@ python tools/sender.py --pps 300
 
 ```sh
 packter-broker web --boards 4 \
-  --agent border-fw=0 --agent dmz-sflow=2 --agent core-tap=3
+  --agent border-fw=1 --agent dmz-sflow=2 --agent core-tap=3
 ```
 
+ボード番号は **0 = receiver（着弾先・固定）/ 1 = sender / 2.. = agent2, agent3 …**。
 エージェント側は `pt_agent -A <id>` で名乗ると、その壁のキャプションになります。
 
 | 枚数 | 形 | 例 |

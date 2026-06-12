@@ -138,7 +138,7 @@ fn parse_args() -> Config {
         record: None,
         thmon: None,
         eve: None,
-        eve_board: 0,
+        eve_board: 1,   // default EVE events onto the sender board (0 = receiver)
         boards: Vec::new(),
         agents: AgentDirectory::default(),
         board_count: None,

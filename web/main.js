@@ -4,11 +4,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // ---- configuration (web/config.json, all keys optional) -----------------
 // N面配置: boards is an array; each board is a plane with its own local
-// coordinate frame. Index 0 = classic sender, 1 = classic receiver.
-// The broker assigns srcBoard per datagram source (--board rules).
+// coordinate frame. Index 0 = receiver (the fly destination, always),
+// 1 = classic sender, 2.. = agent2, agent3, ...
+// The broker assigns srcBoard per datagram source (--agent / --board).
 const DEFAULT_BOARDS = [
-  { name: 'sender', texture: 'assets/compiled/packter_sender.png', position: [0, 0, -110], rotationY: 0, size: 230 },
   { name: 'receiver', texture: 'assets/compiled/packter_receiver.png', position: [0, 0, 110], rotationY: Math.PI, size: 230 },
+  { name: 'sender', texture: 'assets/compiled/packter_sender.png', position: [0, 0, -110], rotationY: 0, size: 230 },
 ];
 
 const DEFAULTS = {
@@ -31,11 +32,11 @@ function migrateBoards(user) {
     return user;
   }
   const old = user.boards;
-  const arr = structuredClone(DEFAULT_BOARDS);
-  if (old.sender?.texture) arr[0].texture = old.sender.texture;
-  if (old.sender?.scale) arr[0].size = 230 * old.sender.scale;
-  if (old.receiver?.texture) arr[1].texture = old.receiver.texture;
-  if (old.receiver?.scale) arr[1].size = 230 * old.receiver.scale;
+  const arr = structuredClone(DEFAULT_BOARDS);   // [0]=receiver, [1]=sender
+  if (old.receiver?.texture) arr[0].texture = old.receiver.texture;
+  if (old.receiver?.scale) arr[0].size = 230 * old.receiver.scale;
+  if (old.sender?.texture) arr[1].texture = old.sender.texture;
+  if (old.sender?.scale) arr[1].size = 230 * old.sender.scale;
   return { ...user, boards: arr };
 }
 
@@ -180,7 +181,7 @@ function makeLabelSprite(initial) {
 // around a circle facing the centre. Seen from straight above they read
 // as bars laid out in a triangle/square/pentagon "shape" (the edges do
 // NOT join — they are separate walls with gaps). The receiver (board
-// index 1, the fly destination) sits at the far side; senders fan toward
+// index 0, the fly destination) sits at the far side; senders fan toward
 // the camera. Packets fly across the arena from each agent wall to the
 // receiver wall. Board count comes from {"t":"layout","count":N}.
 const BOARD_S = cfg.boardSize ?? 200;   // square wall size
@@ -189,9 +190,9 @@ const boardObjects = [];     // index -> { panel, border, sprite } (teardown)
 const boardHidden = [];      // index -> bool (viewer-side live filter)
 
 function defaultBoardName(i) {
-  if (i === 0) return 'sender';
-  if (i === 1) return 'receiver';
-  return `agent${i - 1}`;   // board 2 -> agent1, board 3 -> agent2, ...
+  if (i === 0) return 'receiver';   // board 0 is always the fly destination
+  if (i === 1) return 'sender';
+  return `agent${i}`;               // board 2 -> agent2, 3 -> agent3, ... (index = number)
 }
 
 // circle radius that keeps the walls from overlapping (gaps are fine);
@@ -217,10 +218,10 @@ function rebuildBoards(count) {
   const R = ringRadius(count);
   const up = new THREE.Vector3(0, 1, 0);
 
-  // slot order: receiver (1) at the far side, then senders ascending,
-  // fanning to the near-left / near-right (so agent1 lands on the left)
-  const order = [1];
-  for (let k = 0; k < count; k++) if (k !== 1) order.push(k);
+  // slot order: receiver (0) at the far side, then sender/agents ascending,
+  // fanning to the near-left / near-right
+  const order = [0];
+  for (let k = 0; k < count; k++) if (k !== 0) order.push(k);
 
   for (let s = 0; s < order.length; s++) {
     const i = order[s];

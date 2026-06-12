@@ -35,8 +35,8 @@ pub fn parse_eve_line(line: &str) -> Option<FlyEvent> {
         dx,
         dy,
         flag,
-        src_board: 0,
-        dst_board: 1,
+        src_board: 1,   // overwritten by --eve-board; default sender
+        dst_board: 0,   // receiver
         desc: format!("Incident:{sig} sid:{sid}"),
     })
 }
