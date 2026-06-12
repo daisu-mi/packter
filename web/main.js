@@ -729,7 +729,13 @@ canvas.addEventListener('click', e => {
 // debug/testing hook (read-only introspection for automated checks)
 window.__packter = {
   packets, camera, raycaster, boardFrames, renderer, scene,
-  snapshot: () => { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); },
+  snapshot: () => {
+    const w = canvas.clientWidth || canvas.width, h = canvas.clientHeight || canvas.height;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h; camera.updateProjectionMatrix();   // keep the globe round
+    renderer.render(scene, camera);
+    return renderer.domElement.toDataURL('image/png');
+  },
   boardLabels: () => boardLabelText.slice(),
   boardHidden: () => boardHidden.slice(),
   toggleBoard,
@@ -823,3 +829,6 @@ function frame() {
   renderer.render(scene, camera);
 }
 renderer.setAnimationLoop(frame);
+// debug/testing hook: advance N frames by hand (the headless preview throttles
+// requestAnimationFrame, so this lets a screenshot capture live packets)
+window.__packter.tick = (n = 1) => { for (let k = 0; k < n; k++) frame(); };
