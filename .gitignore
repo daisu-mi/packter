@@ -34,3 +34,5 @@ agent/build-aux/*
 !agent/build-aux/.gitkeep
 **/.deps/
 **/.dirstamp
+*~
+agent/configure~
