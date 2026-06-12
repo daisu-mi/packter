@@ -130,7 +130,7 @@ fn board_for(peer: std::net::IpAddr, rules: &[BoardRule]) -> Option<u8> {
 
 fn parse_args() -> Config {
     let mut cfg = Config {
-        web_dir: "../web".to_string(),
+        web_dir: "./web".to_string(),
         bind: "127.0.0.1".to_string(),   // secure default: localhost only
         udp_port: 11300,
         http_port: 11300,               // TCP (HTTP/WS); UDP 11300 is a separate socket
