@@ -36,3 +36,8 @@ agent/build-aux/*
 **/.dirstamp
 *~
 agent/configure~
+agent/test_unit
+agent/test-suite.log
+agent/test_unit.log
+agent/test_unit.trs
+*.trs
