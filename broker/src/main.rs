@@ -454,12 +454,13 @@ async fn udp_ingest(tx: mpsc::Sender<Parsed>, bind: String, port: u16, forward: 
         }
         // explicit board: from the agent-id map, else a --board ip rule.
         // in --strict mode an unmapped source is dropped (the --agent list
-        // is then the allowlist of what gets shown); otherwise it lands on 0.
+        // is then the allowlist of what gets shown); otherwise it lands on the
+        // sender board 1 (board 0 is the receiver / fly destination).
         let mapped = peeled.board.or_else(|| board_for(peer.ip(), &boards));
         if strict && mapped.is_none() {
             continue;
         }
-        let board = mapped.unwrap_or(0);
+        let board = mapped.unwrap_or(1);
         let ctrl_ok = !agents.controls_need_auth() || peeled.authed;
 
         // an agent's -A id becomes its board caption (deduped on change)
