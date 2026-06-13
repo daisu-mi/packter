@@ -92,6 +92,7 @@ slider = scrub / `Space` = toggle the on-screen info / `1`-`9` = hide a wall /
 ## Documentation
 
 - Build and run (broker / agent / viewer): [English](docs/INSTALL.en.md) / [日本語](docs/INSTALL.md)
+- Wire protocol (the UDP messages agents send): [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
 ## Compatibility
 
