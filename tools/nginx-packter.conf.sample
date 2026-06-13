@@ -54,11 +54,22 @@ upstream packter_broker {
 # fail ("cannot load certificate"). With certbot:
 #   sudo certbot --nginx -d packter.example.org      # or: certonly, then set paths
 # If you have no certs yet, comment this block out and use Option B (plain HTTP).
+#
+# Coexisting with existing vhosts: adding `listen 443 ssl` / `listen 80` here is
+# NOT a duplicate-listen error even when nginx already serves other sites on
+# those ports — that is exactly name-based virtual hosting, routed by
+# server_name (HTTPS via SNI). The only hard conflicts are (a) a SECOND
+# `default_server` on a port, which this block does not add, and (b) a
+# server_name identical to an existing vhost (just use your own hostname).
 # ===========================================================================
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    http2 on;
+    # HTTP/2 (optional). The standalone `http2 on;` directive needs nginx
+    # 1.25.1+. On older nginx (e.g. Ubuntu 24.04 ships 1.24) it is instead
+    # `listen 443 ssl http2;` on the listen lines above. Left off by default so
+    # this file validates on any version; enable whichever your nginx supports:
+    #   http2 on;                       # nginx >= 1.25.1
     server_name packter.example.org;   # <-- your hostname
 
     ssl_certificate     /etc/letsencrypt/live/packter.example.org/fullchain.pem;
