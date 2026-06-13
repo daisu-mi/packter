@@ -4,14 +4,16 @@
 # (cargo), the agent is C (autotools) — so this Makefile just drives each in
 # its own directory. The web viewer needs no build.
 #
-#   make            # build both: broker (release) + agent tools
+#   make            # build both: broker (release) + agent tools  (run as your user)
 #   make broker     # cargo build --release  in broker/
 #   make agent      # (autogen if needed +) configure + make  in agent/
 #   make check      # run both test suites
-#   make install    # self-contained install under PREFIX (default /usr/local/packter):
+#   sudo make install  # copy the built files under PREFIX (default /usr/local/packter):
 #                   #   $(PREFIX)/bin/        -> packter-broker + pt_agent/pt_sflow/...
 #                   #   $(PREFIX)/share/web/  -> the viewer the broker serves
 #                   #   $(PREFIX)/etc/        -> packter.conf.sample
+#                   # install does NOT build — run `make` first as your normal
+#                   # user so cargo/cc never run as root.
 #   make clean      # clean both
 #   make distclean  # clean both + drop the agent's configured build
 #
@@ -50,15 +52,24 @@ check:
 	cd agent && $(MAKE) check
 
 # Self-contained install: everything lands under $(PREFIX) (default
-# /usr/local/packter) so it moves/removes as one tree. We copy the binaries we
-# already built (in `all`) rather than going through automake's install — that
-# keeps placement fully under our control and identical on Linux/*BSD/macOS,
-# and sidesteps automake's configure-time prefix. DESTDIR is honoured for
+# /usr/local/packter) so it moves/removes as one tree. We copy the binaries that
+# were already built rather than going through automake's install — that keeps
+# placement fully under our control and identical on Linux/*BSD/macOS, and
+# sidesteps automake's configure-time prefix. DESTDIR is honoured for
 # staged/packaged installs.
+#
+# install does NOT build: build first as your normal user (`make`), then
+# `sudo make install` only copies. This avoids running cargo/cc as root (which
+# would leave root-owned target/ and pollute the root cargo cache). If the
+# binaries are missing, install errors and tells you to build first.
 # Then run:  $(PREFIX)/bin/packter-broker $(PREFIX)/share/web
 AGENT_BINS = pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
 
-install: all
+install:
+	@test -x broker/target/release/packter-broker || { \
+	  echo "error: broker not built. Run 'make' (as your normal user) first, then 'sudo make install'."; exit 1; }
+	@for b in $(AGENT_BINS); do test -x agent/$$b || { \
+	  echo "error: agent not built ($$b missing). Run 'make' (as your normal user) first, then 'sudo make install'."; exit 1; }; done
 	mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/web $(DESTDIR)$(PREFIX)/etc
 	cp broker/target/release/packter-broker $(DESTDIR)$(PREFIX)/bin/
 	for b in $(AGENT_BINS); do cp agent/$$b $(DESTDIR)$(PREFIX)/bin/; done

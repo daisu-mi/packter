@@ -14,13 +14,19 @@ toolchains, but the `Makefile` at the repository root drives both. On a host
 that has **both the Rust toolchain (`cargo`) and GNU make**:
 
 ```sh
-make            # build broker (release) + agent together
-make broker     # broker only
-make agent      # agent only (runs autogen -> configure if needed)
-make check      # run both test suites
-make install    # self-contained install under PREFIX (default /usr/local/packter)
+make              # build broker (release) + agent together  (as your normal user)
+make broker       # broker only
+make agent        # agent only (runs autogen -> configure if needed)
+make check        # run both test suites
+sudo make install # copy the built files under PREFIX (default /usr/local/packter)
 make agent CONFIGURE_FLAGS=--with-geoip   # e.g. build with PACKTEARTH (GeoIP) enabled
 ```
+
+> **Build as your user, install as root.** `make install` does NOT build (it only
+> copies). Build first with `make` (your own user), then `sudo make install`.
+> Otherwise `cargo`/`cc` would run as root, leaving a root-owned `target/` and
+> polluting root's cargo cache. Running `sudo make install` before building errors
+> out and tells you to build first.
 
 `make install` lays everything out **under PREFIX (default `/usr/local/packter`)**
 as one tree:
