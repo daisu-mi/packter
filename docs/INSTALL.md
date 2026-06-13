@@ -121,10 +121,10 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 ホストし、`ws://<host>:<port>/ws` に繋がるよう同一オリジンに置く。
 
 - 公開リバースプロキシ: ブローカーを既定の `127.0.0.1:11300`（loopback）に残したまま
-  nginx だけを公開リスナにする構成のサンプルが `tools/nginx-packter.conf.sample`。
-  HTTP（ビューア/REST）と WebSocket（`/ws`）の両方を `proxy_pass` で 11300 に流す
-  （WS は `Upgrade`/`Connection` の引き回しが必須）。TLS 終端する場合、ビューアは
-  ページのスキームに追従して `wss://` を選ぶ（`web/main.js`）。
+  nginx 等で前段公開できる。ビューアの参照はすべてページ相対（WebSocket 含む）で、
+  スキームもページに追従（https→`wss`）するため、ルートでもサブパス
+  （例 `/packter/`）でも動く。リバプロ側は `/`（ビューア/REST）と `/ws`（WebSocket、
+  `Upgrade`/`Connection` の引き回しが必須）を 11300 に流すだけ。
 
 - `web/config.json` … サイズ・flag色・ボード名・半径・地形glTF 等（任意・全キー省略可）
 - レイアウト別: `http://<broker>:11300/?config=<file>` で代替設定を読込
