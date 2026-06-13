@@ -87,7 +87,8 @@ MaxMind GeoLite2 is not redistributable, so it is not recommended.
 
 `S` = stop / `C` = back to live / `B`,`F` = step a frame / `Backspace` = -5 min /
 slider = scrub / `Space` = toggle the on-screen info / `1`-`9` = hide a wall /
-`P` = save a PNG / click = select a flying object / drag = rotate the view.
+`H` = auto-rotate (horizontal) / `V` = auto-rotate (vertical) /
+`P` = save a PNG / click = select a flying object / drag = rotate the view by hand.
 
 ## Documentation
 
