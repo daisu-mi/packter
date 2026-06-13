@@ -5,39 +5,37 @@
     </marker>
   </defs>
 
-  <!-- Agents -->
-  <rect x="24" y="86" width="244" height="128" rx="12" fill="#2563eb"/>
-  <text x="146" y="120" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">Agents (C)</text>
+  <!-- Packter Agents -->
+  <rect x="24" y="80" width="244" height="140" rx="12" fill="#2563eb"/>
+  <text x="146" y="118" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">Packter Agents</text>
   <text x="146" y="150" text-anchor="middle" fill="#dbeafe" font-size="14">pt_agent · pt_sflow</text>
-  <text x="146" y="170" text-anchor="middle" fill="#dbeafe" font-size="14">pt_netflow · pt_ipfix</text>
-  <text x="146" y="190" text-anchor="middle" fill="#dbeafe" font-size="14">pt_thmon · pt_replay</text>
+  <text x="146" y="172" text-anchor="middle" fill="#dbeafe" font-size="14">pt_netflow · pt_ipfix</text>
+  <text x="146" y="194" text-anchor="middle" fill="#dbeafe" font-size="14">pt_thmon · pt_replay</text>
 
-  <!-- Broker -->
-  <rect x="358" y="76" width="244" height="148" rx="12" fill="#7c3aed"/>
-  <text x="480" y="118" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">packter-broker</text>
-  <text x="480" y="142" text-anchor="middle" fill="#ede9fe" font-size="14">(Rust)</text>
-  <text x="480" y="172" text-anchor="middle" fill="#ede9fe" font-size="13">collect · record</text>
-  <text x="480" y="192" text-anchor="middle" fill="#ede9fe" font-size="13">authenticate · serve</text>
+  <!-- Packter Broker -->
+  <rect x="358" y="80" width="244" height="140" rx="12" fill="#7c3aed"/>
+  <text x="480" y="118" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">Packter Broker</text>
+  <text x="480" y="158" text-anchor="middle" fill="#ede9fe" font-size="14">collect · record</text>
+  <text x="480" y="184" text-anchor="middle" fill="#ede9fe" font-size="14">authenticate · serve</text>
 
-  <!-- Browser -->
-  <rect x="692" y="86" width="244" height="128" rx="12" fill="#0891b2"/>
-  <text x="814" y="128" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">Web viewer</text>
+  <!-- Packter Viewer -->
+  <rect x="692" y="80" width="244" height="140" rx="12" fill="#0891b2"/>
+  <text x="814" y="118" text-anchor="middle" fill="#ffffff" font-size="20" font-weight="700">Packter Viewer</text>
   <text x="814" y="158" text-anchor="middle" fill="#cffafe" font-size="14">in your browser</text>
-  <text x="814" y="178" text-anchor="middle" fill="#cffafe" font-size="14">(Three.js, 3D)</text>
 
   <!-- Arrow: Agents -> Broker -->
   <line x1="268" y1="150" x2="356" y2="150" stroke="#6b7280" stroke-width="2.5" marker-end="url(#arrow)"/>
-  <rect x="246" y="36" width="132" height="44" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
-  <text x="312" y="55" text-anchor="middle" fill="#111827" font-size="13" font-weight="700">UDP · port 11300</text>
-  <text x="312" y="72" text-anchor="middle" fill="#374151" font-size="12">PACKTER protocol</text>
-  <line x1="312" y1="80" x2="312" y2="138" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
+  <rect x="246" y="34" width="132" height="44" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="312" y="53" text-anchor="middle" fill="#111827" font-size="13" font-weight="700">UDP · port 11300</text>
+  <text x="312" y="70" text-anchor="middle" fill="#374151" font-size="12">PACKTER protocol</text>
+  <line x1="312" y1="78" x2="312" y2="138" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
 
-  <!-- Arrow: Broker -> Browser -->
+  <!-- Arrow: Broker -> Viewer -->
   <line x1="602" y1="150" x2="690" y2="150" stroke="#6b7280" stroke-width="2.5" marker-end="url(#arrow)"/>
-  <rect x="580" y="36" width="132" height="44" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
-  <text x="646" y="55" text-anchor="middle" fill="#111827" font-size="13" font-weight="700">HTTP · port 11300</text>
-  <text x="646" y="72" text-anchor="middle" fill="#374151" font-size="12">+ WebSocket (/ws)</text>
-  <line x1="646" y1="80" x2="646" y2="138" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
+  <rect x="580" y="34" width="132" height="44" rx="8" fill="#f3f4f6" stroke="#d1d5db"/>
+  <text x="646" y="53" text-anchor="middle" fill="#111827" font-size="13" font-weight="700">HTTP · port 11300</text>
+  <text x="646" y="70" text-anchor="middle" fill="#374151" font-size="12">+ WebSocket (/ws)</text>
+  <line x1="646" y1="78" x2="646" y2="138" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3 3"/>
 
   <!-- caption -->
   <text x="480" y="262" text-anchor="middle" fill="#6b7280" font-size="13">network traffic  →  collected &amp; batched (33 ms)  →  drawn as flying objects</text>
