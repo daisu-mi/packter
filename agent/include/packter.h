@@ -106,6 +106,9 @@ typedef struct packter_ctx {
     /* -t <proto>: translate captured UDP payloads as flow export (PT_TRANS_*) */
     int translate;
     void *translate_templates;   /* pt_map* template cache for netflow/ipfix */
+    int translate_suspend;       /* re-entrancy guard: sflow re-injects sampled
+                                  * frames through the capture chain, which must
+                                  * NOT be re-translated as another datagram */
 } packter_ctx;
 
 /* read the PSK from the first line of `file` into ctx (lib/send.c) */
@@ -250,6 +253,20 @@ void packter_netflow_read(packter_ctx *ctx, pt_map *templates,
                           const char *buf, int len);
 void packter_ipfix_read(packter_ctx *ctx, pt_map *templates,
                         const char *buf, int len);
+
+/* ---- shared flow-export layer (lib/collector.c) ----
+ * Single dispatch from a PT_TRANS_* protocol to its reader, used by BOTH the
+ * standalone collectors (pt_sflow/pt_netflow/pt_ipfix) and pt_agent -t, so the
+ * "interpret this UDP payload as a flow datagram" logic lives in exactly one
+ * place. `templates` is the netflow/ipfix template cache (ignored for sFlow). */
+void packter_flow_decode(packter_ctx *ctx, int proto, pt_map *templates,
+                         const char *buf, int len);
+
+/* Common argv parsing + dual-stack UDP serve loop for the three collectors.
+ * They differ only in protocol, advertised name, default port, and whether
+ * -T (traceback, sFlow only) applies. Returns an exit status. */
+int packter_collector_run(int argc, char **argv, int proto,
+                          const char *name, int default_port, int has_trace);
 
 /* ---- GeoIP (optional, lib/geoip.c stub or real) ---- */
 int packter_geoip_lookup(packter_ctx *ctx, const char *host, char *out, size_t outlen);

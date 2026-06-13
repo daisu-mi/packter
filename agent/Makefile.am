@@ -5,8 +5,8 @@ AM_CFLAGS   = -std=c99 -Wall -Wextra
 # shared code, linked into every tool
 noinst_LIBRARIES = libpackter.a
 libpackter_a_SOURCES = \
-	lib/capture.c lib/config.c lib/ctx.c lib/geoip.c lib/hash.c \
-	lib/ipfix.c lib/map.c lib/md5.c lib/mesg.c lib/netflow.c \
+	lib/capture.c lib/collector.c lib/config.c lib/ctx.c lib/geoip.c \
+	lib/hash.c lib/ipfix.c lib/map.c lib/md5.c lib/mesg.c lib/netflow.c \
 	lib/nf_common.c lib/proto.c lib/send.c lib/sflow.c lib/sha256.c \
 	lib/snort.c lib/util.c
 

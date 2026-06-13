@@ -88,22 +88,21 @@ static void handle_udp(packter_ctx *ctx, const unsigned char *p, unsigned int le
     }
 
     /* -t translate: the captured UDP payload IS a flow-export datagram; decode
-     * it like the collectors and emit flow records instead of one UDP ball. */
-    if (ctx->translate != PT_TRANS_NONE) {
+     * it with the same readers the collectors use (lib/collector.c) and emit
+     * flow records instead of one UDP ball.
+     *
+     * Guard against re-entry: the sFlow reader re-injects each sampled frame
+     * through this same chain (packter_ether_frame -> ... -> handle_udp). A
+     * sampled UDP frame must become a normal UDP ball, NOT be re-interpreted as
+     * yet another flow datagram — so we only translate the outer datagram. */
+    if (ctx->translate != PT_TRANS_NONE && ctx->translate_suspend == 0) {
         const char *payload = (const char *)(p + PT_UDP_HDRLEN);
         int paylen = (int)len - PT_UDP_HDRLEN;
         if (paylen > 0) {
-            switch (ctx->translate) {
-            case PT_TRANS_SFLOW:
-                packter_sflow_read(ctx, payload, paylen);
-                break;
-            case PT_TRANS_NETFLOW:
-                packter_netflow_read(ctx, (pt_map *)ctx->translate_templates, payload, paylen);
-                break;
-            case PT_TRANS_IPFIX:
-                packter_ipfix_read(ctx, (pt_map *)ctx->translate_templates, payload, paylen);
-                break;
-            }
+            ctx->translate_suspend = 1;
+            packter_flow_decode(ctx, ctx->translate,
+                                (pt_map *)ctx->translate_templates, payload, paylen);
+            ctx->translate_suspend = 0;
         }
         return;
     }
