@@ -3,8 +3,11 @@
 # Drop-in for an already-running nginx:
 #
 #   sudo cp tools/nginx-packter.conf.sample /etc/nginx/conf.d/packter.conf
-#   sudo $EDITOR /etc/nginx/conf.d/packter.conf     # set server_name
+#   sudo $EDITOR /etc/nginx/conf.d/packter.conf     # set server_name + cert paths
 #   sudo nginx -t && sudo systemctl reload nginx
+#
+# The default (Option A) is HTTPS and expects a TLS cert/key to already exist —
+# `nginx -t` fails otherwise. No cert yet? Switch to Option B (plain HTTP).
 #
 # Files in /etc/nginx/conf.d/*.conf are included inside the http{} block by the
 # stock nginx.conf, so the map / upstream / server blocks below are all in the
@@ -43,19 +46,30 @@ upstream packter_broker {
 }
 
 # ===========================================================================
-# Option A — plain HTTP (no TLS). The viewer connects with ws://.
+# Option A (default) — HTTPS, TLS terminated at nginx. The viewer auto-selects
+# wss:// (web/main.js derives the scheme from the page protocol). Plain :80 is
+# redirected to :443 below.
+#
+# PREREQUISITE: the cert/key paths below must already exist, or `nginx -t` will
+# fail ("cannot load certificate"). With certbot:
+#   sudo certbot --nginx -d packter.example.org      # or: certonly, then set paths
+# If you have no certs yet, comment this block out and use Option B (plain HTTP).
 # ===========================================================================
 server {
-    listen 80;
-    listen [::]:80;
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
     server_name packter.example.org;   # <-- your hostname
 
-    # "just copy it and it works" caveat: on a box that already runs nginx, the
-    # stock site usually owns `listen 80 default_server`, so requests whose Host
-    # does not match server_name above land there, not here. Reach PACKTER by
-    # the hostname you set above. If this host is dedicated to PACKTER, instead
-    # make it the default and disable the stock site:
-    #     listen 80 default_server;     # (and: rm /etc/nginx/sites-enabled/default)
+    ssl_certificate     /etc/letsencrypt/live/packter.example.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/packter.example.org/privkey.pem;
+
+    # On a box that already runs nginx, the stock site usually owns the default
+    # server for :443/:80, so requests whose Host does not match server_name
+    # above land there, not here. Reach PACKTER by the hostname you set above.
+    # If this host is dedicated to PACKTER, make it the default and disable the
+    # stock site:
+    #     listen 443 ssl default_server;   # (and: rm /etc/nginx/sites-enabled/default)
 
     # Optional: gate the whole site behind HTTP basic auth, since the broker's
     # control messages (PACKTERMSG/HTML) are powerful. Generate the file with
@@ -88,19 +102,24 @@ server {
     }
 }
 
+server {                           # redirect plain HTTP to HTTPS
+    listen 80;
+    listen [::]:80;
+    server_name packter.example.org;
+    return 301 https://$host$request_uri;
+}
+
 # ===========================================================================
-# Option B — HTTPS (TLS terminated at nginx). The viewer auto-selects wss://
-# (web/main.js derives the scheme from the page protocol). Delete Option A
-# above if you use this, or redirect :80 -> :443.
+# Option B — plain HTTP (no TLS), the viewer connects with ws://. Use this when
+# you have no certificate (or terminate TLS elsewhere). Comment out Option A
+# above (both server blocks) and uncomment this one.
 # ===========================================================================
 # server {
-#     listen 443 ssl;
-#     listen [::]:443 ssl;
-#     http2 on;
-#     server_name packter.example.org;
-#
-#     ssl_certificate     /etc/letsencrypt/live/packter.example.org/fullchain.pem;
-#     ssl_certificate_key /etc/letsencrypt/live/packter.example.org/privkey.pem;
+#     listen 80;
+#     listen [::]:80;
+#     server_name packter.example.org;   # <-- your hostname
+#     # dedicated host? make it the default and drop the stock site:
+#     #     listen 80 default_server;   # (and: rm /etc/nginx/sites-enabled/default)
 #
 #     location = /ws {
 #         proxy_pass         http://packter_broker;
@@ -108,6 +127,7 @@ server {
 #         proxy_set_header   Upgrade    $http_upgrade;
 #         proxy_set_header   Connection $packter_connection_upgrade;
 #         proxy_set_header   Host       $host;
+#         proxy_set_header   X-Real-IP  $remote_addr;
 #         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
 #         proxy_set_header   X-Forwarded-Proto $scheme;
 #         proxy_read_timeout 1h;
@@ -116,15 +136,10 @@ server {
 #     location / {
 #         proxy_pass       http://packter_broker;
 #         proxy_set_header Host              $host;
+#         proxy_set_header X-Real-IP         $remote_addr;
 #         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
 #         proxy_set_header X-Forwarded-Proto $scheme;
 #     }
-# }
-# server {                       # redirect plain HTTP to HTTPS
-#     listen 80;
-#     listen [::]:80;
-#     server_name packter.example.org;
-#     return 301 https://$host$request_uri;
 # }
 
 # ---------------------------------------------------------------------------
