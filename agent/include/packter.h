@@ -27,7 +27,7 @@ static inline uint32_t pt_be32(const void *p) {
            ((uint32_t)b[2] << 8) | b[3];
 }
 
-#define PACKTER_VERSION      "3.0.0-beta.1"
+#define PACKTER_VERSION      "3.0.0"
 
 #define PACKTER_SNAPLEN      128
 #define PACKTER_BUFSIZ       1024

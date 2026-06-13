@@ -4,7 +4,7 @@
 # *BSD and macOS: ./configure detects libpcap, libm and (optionally)
 # libmaxminddb, and links each tool against only what it needs.
 AC_PREREQ([2.69])
-AC_INIT([packter-agent],[3.0.0-beta.1],[https://github.com/daisu-mi/packter/issues])
+AC_INIT([packter-agent],[3.0.0],[https://github.com/daisu-mi/packter/issues])
 AC_CONFIG_SRCDIR([src/pt_agent.c])
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_HEADERS([config.h])
