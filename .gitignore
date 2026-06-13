@@ -1,4 +1,5 @@
 broker/target/
+broker/Cargo.lock
 *.exe
 .claude/
 __pycache__/
