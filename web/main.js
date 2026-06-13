@@ -627,7 +627,10 @@ const textDecoder = new TextDecoder();
 let wsState = 'connecting';
 
 function connect() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
+  // derive ws/wss from the page scheme so a TLS-terminating reverse proxy
+  // (e.g. nginx serving the viewer over https) does not trip mixed-content
+  const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${wsScheme}://${location.host}/ws`);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => { wsState = 'connected'; clearEvents(); };
   ws.onclose = () => { wsState = 'reconnecting'; setTimeout(connect, 1500); };

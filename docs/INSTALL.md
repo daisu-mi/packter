@@ -120,6 +120,12 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 ビルド不要。ブローカーが配信する。直接配信したい場合は任意の静的サーバで `web/` を
 ホストし、`ws://<host>:<port>/ws` に繋がるよう同一オリジンに置く。
 
+- 公開リバースプロキシ: ブローカーを既定の `127.0.0.1:11300`（loopback）に残したまま
+  nginx だけを公開リスナにする構成のサンプルが `tools/nginx-packter.conf.sample`。
+  HTTP（ビューア/REST）と WebSocket（`/ws`）の両方を `proxy_pass` で 11300 に流す
+  （WS は `Upgrade`/`Connection` の引き回しが必須）。TLS 終端する場合、ビューアは
+  ページのスキームに追従して `wss://` を選ぶ（`web/main.js`）。
+
 - `web/config.json` … サイズ・flag色・ボード名・半径・地形glTF 等（任意・全キー省略可）
 - レイアウト別: `http://<broker>:11300/?config=<file>` で代替設定を読込
 - 地球儀ビュー: `?mode=earth`（または `?config=config-earth.json`）。PACKTEARTH
