@@ -27,6 +27,9 @@
 ## クイックスタート
 
 ```sh
+# 0) まとめてビルド（broker=cargo + agent=autotools を一括。要 cargo と GNU make）
+make
+
 # 1) ブローカー起動（UDP 11300 受信、http://localhost:11300/ でビューア配信）
 broker/target/release/packter-broker  web
 

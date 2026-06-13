@@ -3,6 +3,23 @@
 PACKTER 3.0 は 3 つのコンポーネントからなる。Web ビューアはビルド不要
 （静的ファイル＋CDNのThree.js）。
 
+## まとめてビルド（推奨）
+
+ブローカー（Rust/cargo）とエージェント（C/autotools）は言語もツールも違うが、
+リポジトリ直下の `Makefile` が両方をまとめて呼び出す。**Rust ツールチェイン
+（`cargo`）と GNU make の両方がある環境**で:
+
+```sh
+make            # broker(release) + agent をまとめてビルド
+make broker     # ブローカーだけ
+make agent      # エージェントだけ（必要なら autogen→configure も実行）
+make check      # 両方のテストを実行
+make install    # PREFIX(=既定 /usr/local) に agent ツール + broker を導入
+make agent CONFIGURE_FLAGS=--with-geoip   # 例: PACKTEARTH(GeoIP) 有効でビルド
+```
+
+\*BSD では GNU make（`gmake`）を使うこと。個別にビルドしたい場合は以下の各節を参照。
+
 ## ブローカー（Rust）
 
 要件: Rust 1.75+ (`cargo`)。
