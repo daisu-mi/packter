@@ -76,6 +76,7 @@ pt_agent  -v <broker> -i eth0                 # ライブキャプチャ
 pt_agent  -v <broker> -r dump.pcap            # pcap リプレイ
 pt_agent  -v <broker> -A core-tap -K psk.txt  # 認証つき（同一ホスト多重・XSS対策）
 pt_agent  -v <broker> -B 50 -i eth0           # 50ms バルク送信（帯域節約）
+pt_agent  -v <broker> -i eth0 -t netflow "udp port 2055"  # 翻訳: 拾ったNetFlow輸出をフロー可視化
 pt_sflow  -v <broker> -l 6343                 # sFlow v4 コレクタ
 pt_netflow -v <broker> -l 2055                # NetFlow v9 コレクタ
 pt_ipfix  -v <broker> -l 4739                 # IPFIX(v10) コレクタ
@@ -83,6 +84,20 @@ pt_thmon  -v <broker> -i eth0                 # 適応型監視(CUSUM+EWMA、無
 ```
 
 全オプションは各ツール `-h`。
+
+### `-t` 翻訳モード（pcap の中身をフロー輸出として解釈）
+
+`pt_agent -t {sflow|netflow|ipfix}` は、pcap でキャプチャしたフレームの **UDP ペイロードを
+フロー輸出データグラムとして解釈**し、コレクタ（pt_netflow 等）と同じデコードをして broker に
+送る。SPAN/ミラーポートに流れる輸出 UDP を覗く、または輸出を含む pcap を再生する用途。
+
+- 対象 UDP を選ぶ **BPF フィルタ併用を推奨**（例 `"udp port 2055"`）。版ガードで誤食は安全に無視されるが堅実。
+- ライブ(`-i`)では **snaplen を自動で 65535** に上げてデータグラム全体を取得する。`-r` の pcap は
+  **フルフレームで取得済み**であること（ヘッダだけの pcap だと切り捨てでデコード不可）。
+- **netflow/ipfix はテンプレートをパケット跨ぎでキャッシュ**（データがテンプレより先着しても、
+  エクスポータの定期再送で自然回復）。sflow はステートレス。
+- **IP 断片化された輸出は非対応**（多くのエクスポータは MTU 以下に収める前提）。
+- broker 送信・`-B`/`-A`/`-K`/`-R` はそのまま効く。`-G` を併用すればフロー中の IP を緯度経度化（PACKTEARTH）も可。
 
 ### sFlow / NetFlow コレクタの運用注意
 

@@ -56,7 +56,10 @@ void packter_pcap(packter_ctx *ctx, const char *dumpfile, const char *device,
         if (ctx->debug == PACKTER_TRUE) {
             printf("device = %s\n", device);
         }
-        if ((pd = pcap_open_live(device, PACKTER_SNAPLEN, 1, 500, errbuf)) == NULL) {
+        /* -t translate needs the whole flow-export datagram, not just headers */
+        if ((pd = pcap_open_live(device,
+                 ctx->translate != PT_TRANS_NONE ? 65535 : PACKTER_SNAPLEN,
+                 1, 500, errbuf)) == NULL) {
             fprintf(stderr, "pcap_open_live: %s\n", errbuf);
             exit(EXIT_FAILURE);
         }
@@ -95,6 +98,13 @@ void packter_pcap(packter_ctx *ctx, const char *dumpfile, const char *device,
     default:
         fprintf(stderr, "unsupported linktype %d\n", datalink);
         exit(EXIT_FAILURE);
+    }
+
+    /* netflow/ipfix translation needs a persistent template cache */
+    if (ctx->translate != PT_TRANS_NONE && ctx->translate_templates == NULL) {
+        static pt_map translate_tmpl;
+        pt_map_init(&translate_tmpl);
+        ctx->translate_templates = &translate_tmpl;
     }
 
     if (pcap_loop(pd, -1, callback, (u_char *)ctx) < 0) {

@@ -31,6 +31,7 @@ static void usage(void)
     printf("      -T [ Traceback Client ] (optional)\n");
     printf("      -G [ GeoLiteCity datafile ] (optional)\n");
     printf("      -B [ Bulk window ms: pack records into one datagram ] (optional)\n");
+    printf("      -t [ Translate captured UDP as flow export: sflow|netflow|ipfix ] (optional)\n");
     printf("      -s ( enable PACKTERSE: optional)\n");
     printf("      -n ( Not send packter packet: optional)\n");
     printf("      [ pcap filter expression ] (optional)\n");
@@ -58,7 +59,7 @@ int main(int argc, char *argv[])
     setvbuf(stdout, NULL, _IONBF, 0);
     packter_ctx_init(&ctx);
 
-    while ((op = getopt(argc, argv, "v:i:r:p:R:T:G:B:f:u:g:A:K:nUsSdh?")) != -1) {
+    while ((op = getopt(argc, argv, "v:i:r:p:R:T:G:B:t:f:u:g:A:K:nUsSdh?")) != -1) {
         switch (op) {
         case 'f': ctx.flagbase = atoi(optarg); break;
         case 'd': ctx.debug = PACKTER_TRUE; break;
@@ -74,6 +75,18 @@ int main(int argc, char *argv[])
         case 'S': ctx.snort_report = PACKTER_TRUE; break;
         case 'R': ctx.rate_limit = atoi(optarg); break;
         case 'B': ctx.bulk_ms = atoi(optarg); break;
+        case 't':   /* translate captured UDP payloads as flow export */
+            if (strcmp(optarg, "sflow") == 0) {
+                ctx.translate = PT_TRANS_SFLOW;
+            } else if (strcmp(optarg, "netflow") == 0) {
+                ctx.translate = PT_TRANS_NETFLOW;
+            } else if (strcmp(optarg, "ipfix") == 0) {
+                ctx.translate = PT_TRANS_IPFIX;
+            } else {
+                fprintf(stderr, "-t must be sflow|netflow|ipfix\n");
+                usage();
+            }
+            break;
         case 'T':
             ctx.trace = PACKTER_TRUE;
             if (strlen(optarg) < 1) {

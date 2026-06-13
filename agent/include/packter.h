@@ -67,6 +67,13 @@ static inline uint32_t pt_be32(const void *p) {
 #define PACKTER_AGENT_ID_MAX 64
 #define PACKTER_PSK_MAX      128
 
+/* -t <proto>: interpret captured UDP payloads as a flow-export protocol and
+ * decode them like the pt_sflow/pt_netflow/pt_ipfix collectors */
+#define PT_TRANS_NONE    0
+#define PT_TRANS_SFLOW   1
+#define PT_TRANS_NETFLOW 2
+#define PT_TRANS_IPFIX   3
+
 /* ---- runtime context (replaces the 15 extern globals of 2.5) ---- */
 typedef struct packter_ctx {
     int debug;
@@ -95,6 +102,10 @@ typedef struct packter_ctx {
     char agent_id[PACKTER_AGENT_ID_MAX];
     unsigned char psk[PACKTER_PSK_MAX];
     size_t psk_len;
+
+    /* -t <proto>: translate captured UDP payloads as flow export (PT_TRANS_*) */
+    int translate;
+    void *translate_templates;   /* pt_map* template cache for netflow/ipfix */
 } packter_ctx;
 
 /* read the PSK from the first line of `file` into ctx (lib/send.c) */

@@ -86,6 +86,28 @@ static void handle_udp(packter_ctx *ctx, const unsigned char *p, unsigned int le
     if (len < PT_UDP_HDRLEN) {
         return;
     }
+
+    /* -t translate: the captured UDP payload IS a flow-export datagram; decode
+     * it like the collectors and emit flow records instead of one UDP ball. */
+    if (ctx->translate != PT_TRANS_NONE) {
+        const char *payload = (const char *)(p + PT_UDP_HDRLEN);
+        int paylen = (int)len - PT_UDP_HDRLEN;
+        if (paylen > 0) {
+            switch (ctx->translate) {
+            case PT_TRANS_SFLOW:
+                packter_sflow_read(ctx, payload, paylen);
+                break;
+            case PT_TRANS_NETFLOW:
+                packter_netflow_read(ctx, (pt_map *)ctx->translate_templates, payload, paylen);
+                break;
+            case PT_TRANS_IPFIX:
+                packter_ipfix_read(ctx, (pt_map *)ctx->translate_templates, payload, paylen);
+                break;
+            }
+        }
+        return;
+    }
+
     uh = (const struct pt_udp *)p;
     if (ctx->trace == PACKTER_FALSE && ctx->snort_report == PACKTER_FALSE) {
         snprintf(mesgbuf, PACKTER_BUFSIZ, "UDP src:%s(%d) dst:%s(%d)",
