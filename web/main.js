@@ -627,10 +627,15 @@ const textDecoder = new TextDecoder();
 let wsState = 'connecting';
 
 function connect() {
-  // derive ws/wss from the page scheme so a TLS-terminating reverse proxy
-  // (e.g. nginx serving the viewer over https) does not trip mixed-content
-  const wsScheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${wsScheme}://${location.host}/ws`);
+  // Build the ws URL relative to THIS page (not the site root) so the viewer
+  // works at "/" AND under a reverse-proxy subpath like "/packter/":
+  // new URL('.', href) is the page's directory ("/packter/" or "/"), so the
+  // socket opens at "<dir>ws" (e.g. /packter/ws -> broker /ws after the proxy
+  // strips the prefix). The scheme follows the page (https -> wss) to avoid
+  // mixed-content when nginx terminates TLS.
+  const wsUrl = new URL('ws', new URL('.', location.href).href);
+  wsUrl.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(wsUrl.href);
   ws.binaryType = 'arraybuffer';
   ws.onopen = () => { wsState = 'connected'; clearEvents(); };
   ws.onclose = () => { wsState = 'reconnecting'; setTimeout(connect, 1500); };

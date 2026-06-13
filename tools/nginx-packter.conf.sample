@@ -8,6 +8,8 @@
 #
 # The default (Option A) is HTTPS and expects a TLS cert/key to already exist —
 # `nginx -t` fails otherwise. No cert yet? Switch to Option B (plain HTTP).
+# Already have a running TLS site and just want it under a subpath such as
+# https://siem.example.org/packter/ ?  Use Option C instead (see below).
 #
 # Files in /etc/nginx/conf.d/*.conf are included inside the http{} block by the
 # stock nginx.conf, so the map / upstream / server blocks below are all in the
@@ -152,6 +154,42 @@ server {                           # redirect plain HTTP to HTTPS
 #         proxy_set_header X-Forwarded-Proto $scheme;
 #     }
 # }
+
+# ===========================================================================
+# Option C — serve the broker under a SUBPATH of an ALREADY-RUNNING server.
+# e.g. an existing https://siem.example.org/ (cert + server_name already set up)
+# should show the viewer at https://siem.example.org/packter/.
+#
+# Do NOT add Option A or B. Instead:
+#   1. keep THIS file in /etc/nginx/conf.d/ but comment out Option A and B
+#      (the server blocks above) — what stays active is just the `map` and the
+#      `upstream` at the top, which Option C needs and which live at http{}
+#      level. (Or copy those two blocks into your own config and skip this file.)
+#   2. paste the two location blocks below INTO your existing `server { ... }`
+#      (the one that already terminates TLS for siem.example.org), then
+#      nginx -t && systemctl reload nginx.
+#
+# How it works: the trailing slash on `proxy_pass .../;` strips the matched
+# "/packter/" prefix, so  /packter/ -> /,  /packter/main.js -> /main.js,
+# /packter/ws -> /ws  on the broker. The viewer uses page-relative URLs
+# (including the WebSocket, opened at "<page-dir>ws"), so all of its requests
+# stay under /packter/ and hit these blocks rather than the site root.
+# ===========================================================================
+#     # /packter (no slash) -> /packter/, so the page's relative assets resolve
+#     location = /packter { return 301 /packter/; }
+#
+#     location /packter/ {
+#         proxy_pass         http://packter_broker/;   # trailing slash strips the prefix
+#         proxy_http_version 1.1;
+#         proxy_set_header   Upgrade    $http_upgrade;
+#         proxy_set_header   Connection $packter_connection_upgrade;
+#         proxy_set_header   Host       $host;
+#         proxy_set_header   X-Real-IP  $remote_addr;
+#         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+#         proxy_set_header   X-Forwarded-Proto $scheme;
+#         proxy_read_timeout 1h;     # the feed can be quiet for long stretches
+#         proxy_buffering    off;    # stream frames out immediately
+#     }
 
 # ---------------------------------------------------------------------------
 # Note on the legacy UDP ingest (agents -> broker on UDP 11300): nginx's
