@@ -1,5 +1,16 @@
 # PACKTER broker — nginx reverse-proxy sample
 # ---------------------------------------------------------------------------
+# Drop-in for an already-running nginx:
+#
+#   sudo cp tools/nginx-packter.conf.sample /etc/nginx/conf.d/packter.conf
+#   sudo $EDITOR /etc/nginx/conf.d/packter.conf     # set server_name
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Files in /etc/nginx/conf.d/*.conf are included inside the http{} block by the
+# stock nginx.conf, so the map / upstream / server blocks below are all in the
+# right context. (The commented stream{} block at the very bottom is the one
+# exception — see the note there.)
+#
 # The broker binds to 127.0.0.1:11300 (secure-by-default). Instead of exposing
 # it directly with `--bind 0.0.0.0`, keep it on loopback and let nginx be the
 # only public listener. nginx terminates the public connection (and TLS) and
@@ -9,11 +20,6 @@
 #   - the static viewer + REST  ("/", "/config.json", ...)  -> plain HTTP
 #   - the live feed             ("/ws")                      -> WebSocket
 # so the proxy must forward the WebSocket Upgrade handshake as well.
-#
-#   broker:  packter-broker            # 127.0.0.1:11300 (default, loopback)
-#   nginx :  include this in http{}    # public :80 / :443  ->  127.0.0.1:11300
-#
-# After editing server_name / certs:  nginx -t  &&  systemctl reload nginx
 # ---------------------------------------------------------------------------
 
 # Map the Upgrade request header to the Connection response header:
@@ -21,8 +27,12 @@
 #   - ordinary HTTP request (no Upgrade)        -> Connection: close
 # Without this, a plain proxy_pass would send "Connection: upgrade" on every
 # request (or drop it), breaking either the static files or the socket.
-# Place this block once, at http{} level (NOT inside server{}).
-map $http_upgrade $connection_upgrade {
+#
+# The variable is named $packter_connection_upgrade (not the common
+# $connection_upgrade) on purpose: if your existing config already defines a
+# map for another WebSocket app, a second map writing the SAME variable name is
+# a fatal "duplicate map" error. A unique name lets this file drop in cleanly.
+map $http_upgrade $packter_connection_upgrade {
     default upgrade;
     ''      close;
 }
@@ -40,6 +50,13 @@ server {
     listen [::]:80;
     server_name packter.example.org;   # <-- your hostname
 
+    # "just copy it and it works" caveat: on a box that already runs nginx, the
+    # stock site usually owns `listen 80 default_server`, so requests whose Host
+    # does not match server_name above land there, not here. Reach PACKTER by
+    # the hostname you set above. If this host is dedicated to PACKTER, instead
+    # make it the default and disable the stock site:
+    #     listen 80 default_server;     # (and: rm /etc/nginx/sites-enabled/default)
+
     # Optional: gate the whole site behind HTTP basic auth, since the broker's
     # control messages (PACKTERMSG/HTML) are powerful. Generate the file with
     #   htpasswd -c /etc/nginx/packter.htpasswd alice
@@ -52,7 +69,7 @@ server {
         proxy_pass         http://packter_broker;
         proxy_http_version 1.1;
         proxy_set_header   Upgrade    $http_upgrade;
-        proxy_set_header   Connection $connection_upgrade;
+        proxy_set_header   Connection $packter_connection_upgrade;
         proxy_set_header   Host       $host;
         proxy_set_header   X-Real-IP  $remote_addr;
         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
@@ -89,7 +106,7 @@ server {
 #         proxy_pass         http://packter_broker;
 #         proxy_http_version 1.1;
 #         proxy_set_header   Upgrade    $http_upgrade;
-#         proxy_set_header   Connection $connection_upgrade;
+#         proxy_set_header   Connection $packter_connection_upgrade;
 #         proxy_set_header   Host       $host;
 #         proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
 #         proxy_set_header   X-Forwarded-Proto $scheme;
@@ -119,6 +136,19 @@ server {
 #   - bind the broker to the management IP (`--bind <mgmt-ip>`) so agents reach
 #     UDP, and firewall TCP 11300 so only nginx (localhost) talks to it; or
 #   - keep the broker fully on loopback and forward UDP with nginx's stream{}
-#     module:  stream { server { listen 11300 udp; proxy_pass 127.0.0.1:11300; } }
+#     module (below).
 # The reverse proxy above is only for the viewer's HTTP/WebSocket traffic.
+#
+# IMPORTANT: stream{} is a TOP-LEVEL context, NOT inside http{} — so it CANNOT
+# go in this conf.d file (which is included inside http{}; nginx would reject it
+# with "stream directive is not allowed here"). Put it in the main
+# /etc/nginx/nginx.conf at top level (and load ngx_stream_module if your build
+# splits it out). For reference only:
+#
+#     stream {
+#         server {
+#             listen 11300 udp;
+#             proxy_pass 127.0.0.1:11300;
+#         }
+#     }
 # ---------------------------------------------------------------------------
