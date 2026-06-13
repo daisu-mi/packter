@@ -1,103 +1,116 @@
 # PACKTER 3.0
 
-インターネットトラフィック／サイバー攻撃の 3D 可視化ツール **PACKTER** の現代化版
-（2008年初版の後継）。エージェントが集めたトラフィックを、ブラウザ上で飛翔体として
-リアルタイムに可視化します。
+*English | [日本語](README.ja.md)*
+
+**PACKTER** shows internet traffic and cyber attacks as a real-time 3D picture.
+Small programs ("agents") watch network traffic, and your browser draws each
+packet as a flying object. This is the modernized version of PACKTER, first
+released in 2008.
 
 ```
-旧 PackterAgent ──UDP 11300──▶ packter-broker(Rust) ──WebSocket──▶ Web ビューア(Three.js)
- (pt_agent 等)                  集約・録画・認証・配信              ブラウザで可視化
+old PackterAgent ──UDP 11300──▶ packter-broker (Rust) ──WebSocket──▶ web viewer (Three.js)
+ (pt_agent, etc.)                collect / record / auth / serve       drawn in your browser
 ```
 
-## 構成
+## Parts
 
-- **broker/** — Rust製ブローカー。旧Packterプロトコル（UDP 11300）を互換受信し、
-  33msごとにバッチした飛翔体をWebSocketバイナリで配信。Webビューアの静的配信、
-  直近5分のリングバッファ（巻き戻し・途中参加バックフィル）、JSONL録画、
-  しきい値監視（thmon）、Suricata EVE取り込み、エージェント認証も担う単一バイナリ
-- **agent/** — C言語のエージェント群（`pt_agent` / `pt_sflow` / `pt_netflow` /
-  `pt_ipfix` / `pt_thmon` / `pt_replay`）。PackterAgent 2.5 の全面リライト。依存は
-  libpcap のみ。sFlow/NetFlow/IPFIX コレクタは IPv4・IPv6 両対応（デュアルスタック受信）
-- **web/** — Webビューア（Three.js）。flag色のボールが Agent ボードから Receiver
-  ボードへ飛ぶ。N枚配置（真上から見ると三角〜六角“状”）、巻き戻し、選択、トースト、
-  音声、スカイドーム差替、PNG保存
-- **tools/** — テストトラフィック生成（`sender.py`）・アセット変換スクリプト
-- **docs/** — インストール手順（INSTALL.md）と配置図（img/）
+- **broker/** — the broker, written in Rust. It receives traffic in the old
+  PACKTER format (UDP 11300), batches the flying objects every 33 ms, and sends
+  them to the browser over a WebSocket. One single program also serves the web
+  viewer, keeps the last 5 minutes so you can rewind (and lets late viewers
+  catch up), records to a file, watches for traffic spikes (thmon), reads
+  Suricata EVE alerts, and authenticates agents.
+- **agent/** — the agents, written in C (`pt_agent` / `pt_sflow` / `pt_netflow`
+  / `pt_ipfix` / `pt_thmon` / `pt_replay`). A full rewrite of PackterAgent 2.5.
+  The only dependency is libpcap. The sFlow/NetFlow/IPFIX collectors handle both
+  IPv4 and IPv6.
+- **web/** — the web viewer (uses the Three.js 3D library). Colored balls fly
+  from the agent walls to the receiver wall. Supports several wall layouts
+  (a triangle to a hexagon seen from above), rewind, click-to-select, pop-up
+  messages, sound, sky backdrop swapping, and saving a PNG.
+- **tools/** — a test traffic generator (`sender.py`) and asset-conversion scripts.
+- **docs/** — install guide and layout diagrams.
 
-## クイックスタート
+## Quick start
 
 ```sh
-# 0) まとめてビルド（broker=cargo + agent=autotools を一括。要 cargo と GNU make）
+# 0) build everything (broker via cargo + agent via autotools; needs cargo and GNU make)
 make
 
-# 1) ブローカー起動（UDP 11300 受信、http://localhost:11300/ でビューア配信）
+# 1) start the broker (receives on UDP 11300, serves the viewer at http://localhost:11300/)
 broker/target/release/packter-broker  web
 
-# 2) エージェントを向ける（実トラフィック）
-agent/pt_agent -v <brokerのIP> -i eth0
+# 2) point an agent at it (real traffic)
+agent/pt_agent -v <broker IP> -i eth0
 
-#    またはテストトラフィック
+#    or send test traffic
 python tools/sender.py --pps 300
 ```
 
-ブラウザで `http://localhost:11300/` を開く。
+Open `http://localhost:11300/` in your browser.
 
-## N枚配置（複数エージェント）
+## Multiple agents (several walls)
 
-ブローカーがエージェントをボードに割り当て、ビューアが地面に壁を円状配置します
-（真上から見ると Receiver を頂点とした多角形“状”）。
+The broker assigns each agent to a wall, and the viewer arranges the walls in a
+ring on the ground (seen from above, a polygon with the receiver at the top).
 
 ```sh
 packter-broker web --boards 4 \
   --agent border-fw=1 --agent dmz-sflow=2 --agent core-tap=3
 ```
 
-ボード番号は **0 = receiver（着弾先・固定）/ 1 = sender / 2.. = agent2, agent3 …**。
-エージェント側は `pt_agent -A <id>` で名乗ると、その壁のキャプションになります。
+Wall numbers are **0 = receiver (the target, fixed) / 1 = sender / 2.. = agent2,
+agent3, …**. An agent that introduces itself with `pt_agent -A <id>` becomes the
+caption on its wall.
 
-| 枚数 | 形 | 例 |
+| Walls | Shape | Example |
 |---|---|---|
-| 2 | 対向 | sender / receiver |
-| 3 | 三角形 | ![3](docs/img/3board-flow.png) |
-| 4 | 四角形 | ![4](docs/img/4board-flow.png) |
-| 5 | 五角形 | ![5](docs/img/5board-flow.png) |
-| 6 | 六角形 | ![6](docs/img/6board-flow.png) |
+| 2 | facing | sender / receiver |
+| 3 | triangle | ![3](docs/img/3board-flow.png) |
+| 4 | square | ![4](docs/img/4board-flow.png) |
+| 5 | pentagon | ![5](docs/img/5board-flow.png) |
+| 6 | hexagon | ![6](docs/img/6board-flow.png) |
 
-## 地球儀ビュー（PACKTEARTH）
+## Globe view (PACKTEARTH)
 
-送信元/宛先を**緯度経度**で表し、攻撃を世界地図テクスチャを貼った地球儀上の
-**大圏アーク（弾道）**として飛ばすモード。`http://<broker>:11300/?mode=earth`
-（または `?config=config-earth.json`）で起動する。
+A mode that places source and destination by **latitude/longitude** and flies
+each attack as an **arc over a globe** wrapped in a world-map image. Start it
+with `http://<broker>:11300/?mode=earth` (or `?config=config-earth.json`).
 
 ```sh
-pt_agent -v <broker> -i eth0 -G dbip-city-lite.mmdb   # IP→緯度経度（要 ./configure --with-geoip）
-python tools/sender.py --earth                         # テスト用（都市間トラフィック）
+pt_agent -v <broker> -i eth0 -G dbip-city-lite.mmdb   # turn IPs into lat/lon (needs ./configure --with-geoip)
+python tools/sender.py --earth                         # test traffic between cities
 ```
 
-位置情報には **DB-IP「IP to City Lite」（CC BY 4.0）** を推奨。再配布可能だが
-**表示（DB-IP.com へのクレジット）が条件**。MaxMind GeoLite2 は再配布不可なので非推奨。
+For the location data we recommend **DB-IP "IP to City Lite" (CC BY 4.0)**. It
+is redistributable, **but you must show a credit (a link to DB-IP.com)**.
+MaxMind GeoLite2 is not redistributable, so it is not recommended.
 
-## ビューア操作
+## Viewer controls
 
-`S`=停止 / `C`=ライブ復帰 / `B`,`F`=コマ送り / `Backspace`=-5分 / スライダー=スクラブ /
-`Space`=HUD表示切替 / `1`-`9`=ボード非表示 / `P`=PNG保存 / クリック=飛翔体選択 / ドラッグ=視点回転
+`S` = stop / `C` = back to live / `B`,`F` = step a frame / `Backspace` = -5 min /
+slider = scrub / `Space` = toggle the on-screen info / `1`-`9` = hide a wall /
+`P` = save a PNG / click = select a flying object / drag = rotate the view.
 
-## ドキュメント
+## Documentation
 
-- ビルドと実行（broker / agent / viewer）: [日本語](docs/INSTALL.md) / [English](docs/INSTALL.en.md)
+- Build and run (broker / agent / viewer): [English](docs/INSTALL.en.md) / [日本語](docs/INSTALL.md)
 
-## 互換性
+## Compatibility
 
-ブローカーの互換パーサは以下をすべて受理します（寛容受信）。**既存の PackterAgent 2.5
-は無改修でそのまま使えます**。
+The broker's parser accepts all of the following (lenient input), so **an
+existing PackterAgent 2.5 works as-is, with no changes**.
 
-- `PACKTER\n` ＋ レコード列挙（正規形バルク）／組の繰り返し／`PACKTER レコード`（1行）
-- 旧 `PACTER` ヘッダ、`PACKTERBALLISTIC`、`PACKTERWITHGATEWAY`、`PACKTEARTH`(GeoIP)
-- 制御: `PACKTERMSG` / `PACKTERHTML` / `PACKTERSE` / `PACKTERSOUND` / `PACKTERVOICE` /
-  `PACKTERSKYDOMETEXTURE`
-- 座標欄: IPv4 / IPv6 / 正規化座標(0–1) / 整数(1–65536)
+- `PACKTER\n` followed by a list of records (the normal bulk form) / repeated
+  pairs / `PACKTER <record>` (one line)
+- the old `PACTER` header, `PACKTERBALLISTIC`, `PACKTERWITHGATEWAY`,
+  `PACKTEARTH` (GeoIP)
+- control messages: `PACKTERMSG` / `PACKTERHTML` / `PACKTERSE` / `PACKTERSOUND` /
+  `PACKTERVOICE` / `PACKTERSKYDOMETEXTURE`
+- coordinate fields: IPv4 / IPv6 / normalized coordinates (0–1) / integers (1–65536)
 
-## ライセンス
+## License
 
-コード: BSD 2-Clause。アセット（スカイドーム・flag色・ボードテクスチャ等）は
-旧Packterプロジェクト由来で Creative Commons Attribution (CC BY)。
+Code: BSD 2-Clause. The assets (sky backdrop, flag colors, wall textures, etc.)
+come from the old PACKTER project and are under Creative Commons Attribution
+(CC BY).
