@@ -14,11 +14,27 @@ make            # broker(release) + agent をまとめてビルド
 make broker     # ブローカーだけ
 make agent      # エージェントだけ（必要なら autogen→configure も実行）
 make check      # 両方のテストを実行
-make install    # PREFIX(=既定 /usr/local) に agent ツール + broker を導入
+make install    # PREFIX 配下に自己完結インストール（既定 /usr/local/packter）
 make agent CONFIGURE_FLAGS=--with-geoip   # 例: PACKTEARTH(GeoIP) 有効でビルド
 ```
 
-\*BSD では GNU make（`gmake`）を使うこと。個別にビルドしたい場合は以下の各節を参照。
+`make install` は **PREFIX（既定 `/usr/local/packter`）配下にひとまとめ**で入れる:
+
+```
+/usr/local/packter/
+  bin/        packter-broker, pt_agent, pt_sflow, pt_netflow, pt_ipfix, pt_thmon, pt_replay
+  share/web/  ビューア（ブローカーが配信する静的ファイル）
+  etc/        packter.conf.sample（thmon 設定の雛形）
+```
+
+導入後の起動はこの一行（ビューアの場所を渡す）:
+
+```sh
+/usr/local/packter/bin/packter-broker /usr/local/packter/share/web
+```
+
+`PREFIX=/opt/packter make install` のように移動可。パッケージング用に `DESTDIR` も尊重する。
+\*BSD では GNU make（`gmake`）。個別にビルドしたい場合は以下の各節を参照。
 
 ## ブローカー（Rust）
 

@@ -8,7 +8,10 @@
 #   make broker     # cargo build --release  in broker/
 #   make agent      # (autogen if needed +) configure + make  in agent/
 #   make check      # run both test suites
-#   make install    # install agent tools + broker binary under PREFIX
+#   make install    # self-contained install under PREFIX (default /usr/local/packter):
+#                   #   $(PREFIX)/bin/        -> packter-broker + pt_agent/pt_sflow/...
+#                   #   $(PREFIX)/share/web/  -> the viewer the broker serves
+#                   #   $(PREFIX)/etc/        -> packter.conf.sample
 #   make clean      # clean both
 #   make distclean  # clean both + drop the agent's configured build
 #
@@ -20,7 +23,8 @@
 
 CARGO           ?= cargo
 MAKE            ?= make
-PREFIX          ?= /usr/local
+PREFIX          ?= /usr/local/packter
+DESTDIR         ?=
 CONFIGURE_FLAGS ?=
 
 .PHONY: all broker agent check install clean distclean
@@ -45,12 +49,27 @@ check:
 	cd broker && $(CARGO) test
 	cd agent && $(MAKE) check
 
-# Agent tools go to $(PREFIX)/bin via automake; the broker is a single binary
-# installed with cargo. The broker serves ./web relative to its working dir, so
-# run it from a checkout (or copy web/ next to wherever you launch it).
+# Self-contained install: everything lands under $(PREFIX) (default
+# /usr/local/packter) so it moves/removes as one tree. We copy the binaries we
+# already built (in `all`) rather than going through automake's install — that
+# keeps placement fully under our control and identical on Linux/*BSD/macOS,
+# and sidesteps automake's configure-time prefix. DESTDIR is honoured for
+# staged/packaged installs.
+# Then run:  $(PREFIX)/bin/packter-broker $(PREFIX)/share/web
+AGENT_BINS = pt_agent pt_sflow pt_netflow pt_ipfix pt_thmon pt_replay
+
 install: all
-	cd agent && $(MAKE) install
-	$(CARGO) install --path broker --root $(PREFIX) --force
+	mkdir -p $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/share/web $(DESTDIR)$(PREFIX)/etc
+	cp broker/target/release/packter-broker $(DESTDIR)$(PREFIX)/bin/
+	for b in $(AGENT_BINS); do cp agent/$$b $(DESTDIR)$(PREFIX)/bin/; done
+	cp -R web/. $(DESTDIR)$(PREFIX)/share/web/
+	cp broker/packter.conf.sample $(DESTDIR)$(PREFIX)/etc/packter.conf.sample
+	@echo
+	@echo "installed under $(PREFIX):"
+	@echo "  bin/        packter-broker, $(AGENT_BINS)"
+	@echo "  share/web/  viewer"
+	@echo "  etc/        packter.conf.sample"
+	@echo "run:  $(PREFIX)/bin/packter-broker $(PREFIX)/share/web"
 
 clean:
 	-cd broker && $(CARGO) clean
