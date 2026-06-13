@@ -117,6 +117,19 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.maxDistance = 800;
 
+// auto-rotate modes (toggled by H / V).
+//   H -> controls.autoRotate: built-in horizontal (azimuth) spin.
+//   V -> manual polar (vertical) spin; OrbitControls has none. We nudge the
+//        polar angle each frame and ping-pong near the poles so it never
+//        crosses them (which would gimbal-flip the azimuth/up vector).
+controls.autoRotateSpeed = 1.2;          // degrees-ish per frame scaled internally
+let autoRotateV = false;
+let vDir = 1;
+const V_SPEED = 0.5;                      // radians per second
+const _vOffset = new THREE.Vector3();
+const _vSph = new THREE.Spherical();
+let lastFrameT = 0;
+
 scene.add(new THREE.AmbientLight(0xffffff, 0.45));
 scene.add(new THREE.HemisphereLight(0x9db8d8, 0x3a3a3a, 0.5));
 const dir = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -515,6 +528,8 @@ window.addEventListener('keydown', e => {
     const n = Number(e.code.slice(5));
     if (n >= 1) toggleBoard(n - 1);
   }
+  if (e.code === 'KeyH') controls.autoRotate = !controls.autoRotate;  // horizontal auto-rotate
+  if (e.code === 'KeyV') autoRotateV = !autoRotateV;                  // vertical auto-rotate
   if (e.code === 'KeyP') {              // save a PNG screenshot
     renderer.render(scene, camera);
     const a = document.createElement('a');
@@ -920,7 +935,7 @@ function frame() {
       `PACKTER 3.0 beta — ${wsState}<br>` +
       `events/s: ${pps} | visible: ${visible} | buffered: ${ev.t.length.toLocaleString()} (${span}s / ${REWIND_MS / 1000}s)<br>` +
       `flags:${flagStatsHtml()}<br>` +
-      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide P=png | click=select`;
+      `mode: ${mode === 'live' ? 'LIVE' : 'REWIND'} | S=stop C=live B/F=step Bksp=-5min Space=HUD 1-9=hide H/V=auto-rotate P=png | click=select`;
     if (mode === 'paused') {
       const start = ev.t.length ? Math.max(ev.t[0], now - REWIND_MS) : now - REWIND_MS;
       seek.value = Math.round(1000 * (pausedAt - start) / Math.max(1, now - start));
@@ -936,6 +951,18 @@ function frame() {
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
+  if (autoRotateV) {                    // V: nudge the polar angle, bounce at the poles
+    const dt = lastFrameT ? Math.min(0.1, (now - lastFrameT) / 1000) : 0;
+    _vOffset.copy(camera.position).sub(controls.target);
+    _vSph.setFromVector3(_vOffset);
+    _vSph.phi += vDir * V_SPEED * dt;
+    const lo = 0.15, hi = Math.PI - 0.15;
+    if (_vSph.phi <= lo) { _vSph.phi = lo; vDir = 1; }
+    else if (_vSph.phi >= hi) { _vSph.phi = hi; vDir = -1; }
+    _vOffset.setFromSpherical(_vSph);
+    camera.position.copy(controls.target).add(_vOffset);
+  }
+  lastFrameT = now;
   controls.update();
   renderer.render(scene, camera);
 }

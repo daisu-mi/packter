@@ -7,10 +7,7 @@ Small programs ("agents") watch network traffic, and your browser draws each
 packet as a flying object. This is the modernized version of PACKTER, first
 released in 2008.
 
-```
-old PackterAgent ──UDP 11300──▶ packter-broker (Rust) ──WebSocket──▶ web viewer (Three.js)
- (pt_agent, etc.)                collect / record / auth / serve       drawn in your browser
-```
+![PACKTER architecture: agents send over UDP (PACKTER protocol) to the broker; the broker serves the browser over HTTP/WebSocket](docs/img/architecture.svg)
 
 ## Parts
 

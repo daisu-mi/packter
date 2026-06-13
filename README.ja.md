@@ -7,10 +7,7 @@
 データを集め、ブラウザがそれを 1 つ 1 つ「飛ぶ玉」として描きます。2008 年に最初に
 公開した PACKTER を、いまの環境向けに作り直した版です。
 
-```
-旧 PackterAgent ──UDP 11300──▶ packter-broker (Rust) ──WebSocket──▶ Web ビューア (Three.js)
- (pt_agent など)                集約・録画・認証・配信               ブラウザで表示
-```
+![PACKTER architecture: agents send over UDP (PACKTER protocol) to the broker; the broker serves the browser over HTTP/WebSocket](docs/img/architecture.svg)
 
 ## 構成
 
